@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0c1016" />
-<title>AI Sandbox — Realistic Life V1</title>
+<title>AI Sandbox — Realistic Life V1.1</title>
 <style>
 :root {
   color-scheme: dark;
@@ -716,6 +716,9 @@ button:disabled { opacity: .38; cursor: default; }
       this.state = state || createInitialState();
       this.provider = provider || new LocalNarrativeProvider();
       this.interpreter = new ActionInterpreter();
+      this.state.dialogue = this.state.dialogue || { version: 2, threads: {} };
+      this.state.dialogue.version = 2;
+      this.state.meta.provider = 'local-context-v2';
       if (!this.state.ui.lastNarrative) {
         this.state.ui.lastNarrative = this.provider.generateScene(this.state, null);
         this.state.ui.suggestions = this.provider.generateSuggestions(this.state);
@@ -824,23 +827,237 @@ button:disabled { opacity: .38; cursor: default; }
 
     resolveText(action) {
       const s = this.state; const npc = s.npcs[action.npcId]; const thread = npc.phone.threadId;
-      const msg = { id: makeId('msg', s), at: s.world.now, senderId: 'jonathan', recipientId: npc.id, body: action.body, read: true };
       s.messages[thread] = s.messages[thread] || [];
+      const analysis = this.analyzePlayerMessage(npc, action.body, thread);
+      const msg = {
+        id: makeId('msg', s), at: s.world.now, senderId: 'jonathan', recipientId: npc.id,
+        body: action.body, read: true, topic: analysis.topic, intent: analysis.intent,
+      };
       s.messages[thread].push(msg);
-      this.log('message', `Message sent to ${npc.name}.`);
-      const delay = 2 + Math.floor(seededRandom(s) * 18);
-      s.scheduledEvents.push({ id: makeId('evt', s), type: 'message_response', title: `${npc.name} reply`, triggerAt: addMinutesISO(s.world.now, delay), deadlineAt: null, status: 'queued', visibility: 'hidden', npcId: npc.id, payload: { respondingTo: msg.id, incomingBody: this.composeReply(npc, action.body) } });
-      if (/thank|appreciate|checking on you|hope you're okay|how are you/i.test(action.body)) this.changeRelationship(npc.id, { trust: 1, affection: 1 }, `Jonathan sent a considerate message: "${action.body}"`);
+      this.updateDialogueThread(thread, { topic: analysis.topic, lastPlayerIntent: analysis.intent, lastPlayerMessageId: msg.id });
+      this.log('message', `Message sent to ${npc.name}. Topic=${analysis.topic}; intent=${analysis.intent}.`);
+
+      const replyPlan = this.composeReply(npc, action.body, thread, msg.id, analysis);
+      const delay = this.replyDelayMinutes(npc, analysis);
+      s.scheduledEvents.push({
+        id: makeId('evt', s), type: 'message_response', title: `${npc.name} reply`,
+        triggerAt: addMinutesISO(s.world.now, delay), deadlineAt: null, status: 'queued', visibility: 'hidden', npcId: npc.id,
+        payload: {
+          respondingTo: msg.id, incomingBody: replyPlan.body, topic: replyPlan.topic,
+          intent: replyPlan.intent, memoryEvent: replyPlan.memoryEvent || null, engineVersion: 2,
+        },
+      });
+
+      if (/thank|appreciate|checking on you|hope you're okay|how are you|sorry/i.test(action.body)) {
+        this.changeRelationship(npc.id, { trust: 1, affection: 1 }, `Jonathan sent a considerate message: "${action.body}"`);
+      }
       return { ok: true, type: action.type, minutes: 1, narrative: `You text ${npc.name}: “${action.body}”` };
     }
 
-    composeReply(npc, body) {
-      const lower = body.toLowerCase();
-      if (/late/.test(lower)) return npc.id === 'maya' ? 'No problem. Just let me know when you’re actually heading over.' : 'All good. Just text me when you’re on the way.';
-      if (/how .*night|how are you|okay/.test(lower)) return npc.id === 'maya' ? 'I’m okay. Just tired. I’m trying not to think about work for the rest of tonight.' : 'Doing fine. Pretty normal night over here.';
-      if (/shift/.test(lower) && npc.id === 'daniel') return 'Yeah, I meant the later shift. I can send you the exact day if you want.';
-      if (/help|saturday/.test(lower)) return 'That would help. I’ll confirm the time with you before then.';
-      return npc.id === 'dad' ? 'Sounds good. Give me a call when you have a minute.' : 'Yeah, that works.';
+    normalizeDialogueText(text) {
+      return String(text || '')
+        .toLowerCase()
+        .replace(/[’]/g, "'")
+        .replace(/[^a-z0-9'?!$%\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    updateDialogueThread(threadId, patch) {
+      const s = this.state;
+      s.dialogue = s.dialogue || { version: 2, threads: {} };
+      s.dialogue.threads = s.dialogue.threads || {};
+      const current = s.dialogue.threads[threadId] || { topic: 'general', turns: 0 };
+      s.dialogue.threads[threadId] = { ...current, ...patch, turns: (current.turns || 0) + 1, updatedAt: s.world.now };
+      return s.dialogue.threads[threadId];
+    }
+
+    dialogueContext(npc, threadId, respondingToId = null) {
+      const all = (this.state.messages[threadId] || []);
+      let end = all.length;
+      if (respondingToId) {
+        const idx = all.findIndex(m => m.id === respondingToId);
+        if (idx >= 0) end = idx + 1;
+      }
+      const messages = all.slice(Math.max(0, end - 10), end);
+      const current = messages[messages.length - 1] || null;
+      const beforeCurrent = messages.slice(0, -1);
+      const lastNpc = [...beforeCurrent].reverse().find(m => m.senderId === npc.id) || null;
+      const lastPlayer = [...beforeCurrent].reverse().find(m => m.senderId === 'jonathan') || null;
+      const lastNpcBeforeLastPlayer = lastPlayer
+        ? [...beforeCurrent.slice(0, beforeCurrent.lastIndexOf(lastPlayer))].reverse().find(m => m.senderId === npc.id) || null
+        : null;
+      const threadState = (this.state.dialogue && this.state.dialogue.threads && this.state.dialogue.threads[threadId]) || {};
+      return { messages, current, lastNpc, lastPlayer, lastNpcBeforeLastPlayer, threadState };
+    }
+
+    inferDialogueTopic(text, npc, context = null) {
+      const lower = this.normalizeDialogueText(text);
+      if (/\b(work|job|boss|manager|office|shift|schedule|coworker|week was|this week)\b/.test(lower)) return 'work';
+      if (/\b(money|bank|balance|rent|pay|paid|cost|cash|dollar|\$)\b/.test(lower)) return 'money';
+      if (/\b(home|apartment|house|where are you|where you at|location)\b/.test(lower)) return 'location';
+      if (/\b(gym|workout|exercise|basketball)\b/.test(lower)) return 'fitness';
+      if (/\b(dinner|eat|food|coffee|breakfast|lunch)\b/.test(lower)) return 'food';
+      if (/\b(saturday|sunday|monday|tuesday|wednesday|thursday|friday|tomorrow|tonight|later|when|time|plan|plans|free)\b/.test(lower)) return 'plans';
+      if (/\b(tired|okay|good|bad|feel|feeling|night|day|doing|how are you|how r you)\b/.test(lower)) return 'wellbeing';
+      if (/\b(car|squeak|mechanic|oil)\b/.test(lower)) return 'car';
+      if (context && context.lastNpc) {
+        const inherited = context.lastNpc.topic || this.inferDialogueTopic(context.lastNpc.body, npc, null);
+        if (inherited && inherited !== 'general') return inherited;
+      }
+      if (context && context.threadState && context.threadState.topic) return context.threadState.topic;
+      if (npc.id === 'maya' && npc.plans && (npc.plans.unresolvedProblems || []).some(x => /work|schedule|manager/i.test(x))) return 'work';
+      return 'general';
+    }
+
+    inferDialogueIntent(text, context = null) {
+      const lower = this.normalizeDialogueText(text);
+      if (/\bwhat works\b|\bwhat do you mean\b|\bwhat did you mean\b|\bthat makes no sense\b|\bi'm confused\b|\bim confused\b|^huh\??$/.test(lower)) return 'repair';
+      if (/\bwhat happened\b|\bwhat's happened\b|\bwhat was ridiculous\b|\bwhy\b|\bhow come\b|\btell me more\b|\bwhat went on\b/.test(lower)) return 'ask_explain';
+      if (/\bhow are you\b|\bhow r you\b|\byou okay\b|\bare you okay\b|\bhow you doing\b|\bhow's your night\b|\bhow is your night\b/.test(lower)) return 'ask_wellbeing';
+      if (/\bwhat are you doing\b|\bwhat're you doing\b|\bwhat you doing\b|\bwyd\b/.test(lower)) return 'ask_activity';
+      if (/\bwhere are you\b|\bwhere you at\b/.test(lower)) return 'ask_location';
+      if (/\bwhich shift\b|\bwhat shift\b|\bwhen is it\b|\bwhat day\b|\bwhat time\b/.test(lower)) return 'ask_schedule_detail';
+      if (/\bcan you\b|\bcould you\b|\bwould you\b|\bdo you want\b|\bwanna\b|\bwant to\b/.test(lower) && /\?/.test(lower)) return 'request';
+      if (/\bthank|thanks|appreciate\b/.test(lower)) return 'thanks';
+      if (/\bsorry|my bad\b/.test(lower)) return 'apology';
+      if (/^(hey|hi|hello|yo)\b/.test(lower)) return 'greeting';
+      if (/\?$/.test(lower) || /^(what|why|how|when|where|who|is|are|do|did|can|could|would)\b/.test(lower)) return 'question';
+      if (/\b(ok|okay|sure|sounds good|got it|alright|yeah|yep|yes)\b/.test(lower) && lower.length < 35) return 'acknowledge';
+      if (/\b(no|nah|can't|cannot|wont|won't|don't want)\b/.test(lower) && lower.length < 50) return 'decline';
+      if (context && context.lastNpc && /\?/.test(context.lastNpc.body || '')) return 'answer';
+      return 'statement';
+    }
+
+    analyzePlayerMessage(npc, body, threadId) {
+      const context = this.dialogueContext(npc, threadId);
+      const intent = this.inferDialogueIntent(body, context);
+      const topic = this.inferDialogueTopic(body, npc, context);
+      return { intent, topic };
+    }
+
+    replyDelayMinutes(npc, analysis) {
+      const s = this.state;
+      let base = 2 + Math.floor(seededRandom(s) * 10);
+      if (npc.current.activity === 'working') base += 8 + Math.floor(seededRandom(s) * 18);
+      if (analysis.intent === 'repair' || analysis.intent === 'ask_explain') base = Math.max(2, base - 2);
+      return base;
+    }
+
+    chooseReply(options) {
+      if (!options || !options.length) return '';
+      const i = Math.floor(seededRandom(this.state) * options.length);
+      return options[Math.max(0, Math.min(options.length - 1, i))];
+    }
+
+    contextualFallback(npc, topic, intent, context) {
+      const lastNpcText = context.lastNpc ? this.normalizeDialogueText(context.lastNpc.body) : '';
+      if (intent === 'question') {
+        if (topic === 'work') return npc.id === 'maya'
+          ? 'Mostly work stuff. The schedule has been a mess lately. What part did you mean?'
+          : npc.id === 'daniel' ? 'If you mean work, it’s been pretty routine. What were you asking about exactly?' : 'If you mean work, things are moving along. What part are you asking about?';
+        if (topic === 'plans') return 'I’m not totally sure what you mean. Are you asking what I’m doing later or about a specific plan?';
+        if (topic === 'wellbeing') return `I’m ${npc.current.mood || 'okay'} right now. What did you want to know?`;
+        if (lastNpcText) return `I might be missing what you mean. Are you asking about what I just said?`;
+        return 'I’m not totally sure what you mean. Can you say it another way?';
+      }
+      if (intent === 'statement') {
+        if (topic === 'work') return npc.id === 'maya' ? 'Yeah. Work has been taking more out of me than usual lately.' : 'Yeah, I get you. Work has been pretty normal on my end.';
+        if (topic === 'plans') return 'Got it. Keep me posted once you know what you want to do.';
+        return npc.id === 'dad' ? 'Got it. Keep me posted.' : 'Yeah, I get what you mean.';
+      }
+      return 'I might be missing the context. Say that one more way?';
+    }
+
+    repairReply(npc, context) {
+      const lastNpc = context.lastNpc;
+      const priorPlayer = context.lastPlayer;
+      const priorNpc = context.lastNpcBeforeLastPlayer;
+      const genericAck = lastNpc && /^(yeah,? that works\.?|sounds good\.?|okay\.?|got it\.?)$/i.test((lastNpc.body || '').trim());
+      if (genericAck && priorPlayer) {
+        const priorIntent = this.inferDialogueIntent(priorPlayer.body, { lastNpc: priorNpc, threadState: context.threadState });
+        const priorTopic = this.inferDialogueTopic(priorPlayer.body, npc, { lastNpc: priorNpc, threadState: context.threadState });
+        if (priorIntent === 'ask_explain' && npc.id === 'maya' && priorTopic === 'work') {
+          return 'Sorry, that reply made no sense. I meant work was ridiculous. My schedule kept getting moved around and we were short-staffed, so I got stuck staying late a couple times. Nothing dramatic, just exhausting.';
+        }
+        if (priorTopic === 'plans') return 'Sorry, I answered that badly. I meant the plan we were talking about. Tell me which part you were asking about.';
+        return `Sorry, that reply didn't match what you asked. I was responding to your last message, not saying that something specific “works.”`;
+      }
+      return `Sorry, I wasn't clear. Tell me which part you want me to explain and I'll answer that directly.`;
+    }
+
+    composeReply(npc, body, threadId, respondingToId = null, analysis = null) {
+      const context = this.dialogueContext(npc, threadId, respondingToId);
+      const intent = analysis ? analysis.intent : this.inferDialogueIntent(body, context);
+      const topic = analysis ? analysis.topic : this.inferDialogueTopic(body, npc, context);
+      const lower = this.normalizeDialogueText(body);
+      let reply = '';
+      let memoryEvent = null;
+
+      if (intent === 'repair') {
+        reply = this.repairReply(npc, context);
+      } else if (intent === 'ask_explain') {
+        if (npc.id === 'maya' && topic === 'work') {
+          reply = this.chooseReply([
+            'Mostly work. My schedule kept getting changed around and we were short-staffed, so I ended up staying late a couple times. Nothing huge happened, it was just one annoying thing after another.',
+            'Work, mainly. The schedule was all over the place and we were short a person more than once. I kept thinking I was done and then something else came up.',
+            'Honestly, mostly work. Too many last-minute schedule changes, not enough people, and a couple late days. By the end of the week I was completely over it.'
+          ]);
+          memoryEvent = 'Maya told Jonathan that her rough week was mainly caused by schedule changes, short staffing, and staying late.';
+        } else if (npc.id === 'daniel' && topic === 'work') {
+          reply = 'Nothing dramatic. Work has just been busy and I’m trying to sort out one of my upcoming shifts.';
+        } else if (topic === 'wellbeing') {
+          reply = `Nothing major. I’m just ${npc.current.mood || 'a little worn out'} and trying to have a quiet night.`;
+        } else {
+          reply = this.contextualFallback(npc, topic, 'question', context);
+        }
+      } else if (intent === 'ask_wellbeing') {
+        if (npc.id === 'maya') reply = 'I’m okay. Just tired and kind of done with work for the week. I’m home now, so I’m trying to shut my brain off.';
+        else if (npc.id === 'daniel') reply = `I’m good. Pretty normal night. ${npc.current.activity === 'working out' ? 'I’m at the gym right now.' : 'Just figuring out what I want to do later.'}`;
+        else reply = 'I’m good. Just taking care of a few things around the house.';
+      } else if (intent === 'ask_activity') {
+        const activity = npc.current.activity || 'taking it easy';
+        if (npc.id === 'maya' && activity === 'at home') reply = 'I’m home. Mostly sitting around and trying to decompress.';
+        else if (npc.id === 'daniel' && activity === 'at home') reply = 'At home right now. Debating whether I actually feel like going out again.';
+        else if (npc.id === 'dad' && activity === 'at home') reply = 'At home. I’m finishing a couple things and then I’m done for the night.';
+        else reply = `I’m ${activity} right now.`;
+      } else if (intent === 'ask_location') {
+        const loc = this.state.locations[npc.current.locationId];
+        reply = loc ? `I’m at ${loc.name} right now.` : 'I’m out right now, but nothing unusual.';
+      } else if (intent === 'ask_schedule_detail' || /\bshift\b/.test(lower)) {
+        if (npc.id === 'daniel') reply = 'I meant the later upcoming shift. I’m still trying to pin down whether I actually need to swap it, so I don’t want to give you the wrong day yet.';
+        else if (npc.id === 'maya') reply = 'My schedule has been changing enough that I’m not counting on anything until it’s actually posted.';
+        else reply = 'I’ll check the exact time before I tell you so I don’t give you the wrong one.';
+      } else if (/\blate\b/.test(lower)) {
+        reply = npc.id === 'maya' ? 'No problem. Just let me know when you’re actually heading over.' : 'All good. Just text me when you’re on the way.';
+      } else if (/\bhelp\b|\bsaturday\b/.test(lower) && intent !== 'question') {
+        reply = 'That would help. I’ll confirm the time with you before then.';
+      } else if (intent === 'thanks') {
+        reply = npc.id === 'dad' ? 'Of course.' : this.chooseReply(['Of course.', 'Anytime.', 'Yeah, no problem.']);
+      } else if (intent === 'apology') {
+        reply = npc.relationship.resentment > 25 ? 'I hear you. I’m still a little annoyed, but I appreciate you saying that.' : 'You’re fine. I appreciate you saying it.';
+      } else if (intent === 'greeting') {
+        reply = npc.id === 'dad' ? 'Hey. Everything okay?' : this.chooseReply(['Hey, what’s up?', 'Hey. How’s your night going?', 'Hey lol, what’s going on?']);
+      } else if (intent === 'acknowledge') {
+        reply = topic === 'work' && npc.id === 'maya' ? 'Yeah. I’m just glad the week is over.' : this.chooseReply(['Yeah.', 'Gotcha.', 'Okay, good.']);
+      } else if (intent === 'decline') {
+        reply = npc.id === 'maya' ? 'That’s fine. No pressure.' : npc.id === 'dad' ? 'Okay. Just let me know what you decide.' : 'No worries.';
+      } else if (intent === 'answer') {
+        reply = this.contextualFallback(npc, topic, 'statement', context);
+      } else if (intent === 'request') {
+        if (/\bcall\b/.test(lower)) reply = npc.current.activity === 'working' ? 'I can call when I’m free.' : 'Yeah, give me a few minutes.';
+        else if (/\bcome over|hang out|meet|coffee|dinner\b/.test(lower)) reply = npc.id === 'maya' ? 'Maybe. What time were you thinking?' : 'Possibly. What did you have in mind?';
+        else reply = 'Maybe. Tell me exactly what you’re asking and I’ll let you know.';
+      } else {
+        reply = this.contextualFallback(npc, topic, intent, context);
+      }
+
+      if (!reply || /^(yeah,? that works\.?|sounds good\.?)$/i.test(reply.trim())) {
+        reply = this.contextualFallback(npc, topic, intent === 'question' ? 'question' : 'statement', context);
+      }
+
+      this.updateDialogueThread(threadId, { topic, lastNpcIntent: 'reply', lastNpcPlannedReplyTo: respondingToId });
+      return { body: reply, topic, intent: 'reply', memoryEvent };
     }
 
     resolveCall(action) {
@@ -1018,10 +1235,25 @@ button:disabled { opacity: .38; cursor: default; }
       for (const event of due) {
         if (event.type === 'message_response') {
           const npc = s.npcs[event.npcId]; const thread = npc.phone.threadId;
-          s.messages[thread].push({ id: makeId('msg', s), at: event.triggerAt, senderId: npc.id, recipientId: 'jonathan', body: event.payload.incomingBody, read: false });
+          const sent = (s.messages[thread] || []).find(m => m.id === event.payload.respondingTo);
+          let incomingBody = event.payload.incomingBody;
+          let topic = event.payload.topic || 'general';
+          let memoryEvent = event.payload.memoryEvent || null;
+          if (!event.payload.engineVersion && sent) {
+            const repairedPlan = this.composeReply(npc, sent.body, thread, sent.id);
+            incomingBody = repairedPlan.body; topic = repairedPlan.topic; memoryEvent = repairedPlan.memoryEvent || null;
+          }
+          s.messages[thread].push({
+            id: makeId('msg', s), at: event.triggerAt, senderId: npc.id, recipientId: 'jonathan',
+            body: incomingBody, read: false, topic, intent: 'reply', replyToId: event.payload.respondingTo || null,
+          });
+          this.updateDialogueThread(thread, { topic, lastNpcMessageAt: event.triggerAt });
+          if (memoryEvent && !npc.memories.some(m => m.event === memoryEvent)) {
+            this.addMemory(npc.id, { event: memoryEvent, emotionalValence: 0, emotionalStrength: 0.12, importance: 0.28, decay: 'slow', private: false, secret: false });
+          }
           event.status = 'completed';
           visible.push({ type: 'message', text: `A message from ${npc.name} arrives.` });
-          this.log('event', `Incoming message from ${npc.name}.`);
+          this.log('event', `Incoming contextual message from ${npc.name}.`);
         } else if (event.type === 'npc_call') {
           const npc = s.npcs[event.npcId];
           const thread = npc.phone.threadId;
@@ -1265,6 +1497,34 @@ button:disabled { opacity: .38; cursor: default; }
       assert(!/murder|threat|emergency|mysterious|kidnap|conspiracy/i.test(r.narrative), 'Forced drama appeared.');
     });
 
+    check('11 — Text follow-up uses conversation context', () => {
+      const e = new SimulationEngine(createInitialState({ startTime: fixed, seed: 11 }));
+      const plan = e.composeReply(e.state.npcs.maya, 'Oh ya? What happened 😳', 'thread_maya', null, { intent: 'ask_explain', topic: 'work' });
+      assert(/work|schedule|staff|late/i.test(plan.body), `Contextual reply was not about Maya's rough work week: ${plan.body}`);
+      assert(!/^yeah,? that works/i.test(plan.body), 'Old generic fallback was used.');
+    });
+
+    check('12 — Dialogue can repair an incoherent previous reply', () => {
+      const s = createInitialState({ startTime: fixed, seed: 12 });
+      s.messages.thread_maya.push(
+        { id: 'repair_user', at: addMinutesISO(fixed, 1), senderId: 'jonathan', recipientId: 'maya', body: 'Oh ya? What happened 😳', read: true },
+        { id: 'repair_bad', at: addMinutesISO(fixed, 2), senderId: 'maya', recipientId: 'jonathan', body: 'Yeah, that works.', read: true },
+        { id: 'repair_now', at: addMinutesISO(fixed, 3), senderId: 'jonathan', recipientId: 'maya', body: 'What works?', read: true }
+      );
+      const e = new SimulationEngine(s);
+      const plan = e.composeReply(e.state.npcs.maya, 'What works?', 'thread_maya', 'repair_now', { intent: 'repair', topic: 'work' });
+      assert(/sorry|made no sense|wasn't clear/i.test(plan.body), `Repair did not acknowledge the mismatch: ${plan.body}`);
+      assert(/work|schedule/i.test(plan.body), `Repair did not restore the prior topic: ${plan.body}`);
+    });
+
+    check('13 — Unknown questions fail safely instead of inventing agreement', () => {
+      const e = new SimulationEngine(createInitialState({ startTime: fixed, seed: 13 }));
+      e.state.messages.thread_maya.push({ id: 'unknown_q', at: fixed, senderId: 'jonathan', recipientId: 'maya', body: 'Is that really what you want?', read: true });
+      const plan = e.composeReply(e.state.npcs.maya, 'Is that really what you want?', 'thread_maya', 'unknown_q');
+      assert(!/^yeah,? that works/i.test(plan.body), 'Generic agreement fallback returned.');
+      assert(plan.body.length > 12, 'Fallback reply is too empty to be useful.');
+    });
+
     return report;
   }
 
@@ -1357,7 +1617,7 @@ button:disabled { opacity: .38; cursor: default; }
           <section class="landing-card">
             <div class="eyebrow">Persistent simulation</div>
             <h1>AI SANDBOX</h1>
-            <p>Realistic Life V1. Free-text first, persistent NPCs, time, memory, beliefs, consequences, and local saves.</p>
+            <p>Realistic Life V1.1. Free-text first, persistent NPCs, contextual local dialogue, time, memory, beliefs, consequences, and local saves.</p>
             <div class="landing-actions">
               <button class="primary" id="newGameBtn">NEW GAME</button>
               <button class="secondary" id="continueBtn" ${hasSave ? '' : 'disabled'}>CONTINUE</button>
