@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0c1016" />
-<title>AI Sandbox — Realistic Life V1.1</title>
+<title>AI Sandbox — Realistic Life V1.2</title>
 <style>
 :root {
   color-scheme: dark;
@@ -1822,6 +1822,46 @@ button:disabled { opacity: .38; cursor: default; }
       } catch (_) { return null; }
     }
 
+
+    getAIUsageStats() {
+      try {
+        const raw = localStorage.getItem('aiSandboxAiUsage');
+        return raw ? JSON.parse(raw) : { requests: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, estimatedCost: 0, last: null };
+      } catch (_) { return { requests: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, estimatedCost: 0, last: null }; }
+    }
+
+    recordAIUsage(data) {
+      const u = data && data.usage ? data.usage : null;
+      if (!u) return null;
+      const input = Number(u.input_tokens ?? u.inputTokens ?? 0) || 0;
+      const output = Number(u.output_tokens ?? u.outputTokens ?? 0) || 0;
+      const cached = Number(u.cached_input_tokens ?? u.cachedInputTokens ?? (u.input_tokens_details && u.input_tokens_details.cached_tokens) ?? 0) || 0;
+      const uncached = Math.max(0, input - cached);
+      // GPT-5.6 Luna standard text rates as of Sep 2026:
+      // $0.20 / 1M uncached input, $0.02 / 1M cached input, $1.20 / 1M output.
+      const cost = (uncached * 0.20 + cached * 0.02 + output * 1.20) / 1000000;
+      const stats = this.getAIUsageStats();
+      stats.requests = (stats.requests || 0) + 1;
+      stats.inputTokens = (stats.inputTokens || 0) + input;
+      stats.cachedInputTokens = (stats.cachedInputTokens || 0) + cached;
+      stats.outputTokens = (stats.outputTokens || 0) + output;
+      stats.estimatedCost = (stats.estimatedCost || 0) + cost;
+      stats.last = { inputTokens: input, cachedInputTokens: cached, outputTokens: output, totalTokens: Number(u.total_tokens ?? u.totalTokens ?? (input + output)) || (input + output), estimatedCost: cost, at: new Date().toISOString(), model: data.model || 'gpt-5.6-luna' };
+      try { localStorage.setItem('aiSandboxAiUsage', JSON.stringify(stats)); } catch (_) {}
+      return stats.last;
+    }
+
+    clearAIUsageStats() {
+      try { localStorage.removeItem('aiSandboxAiUsage'); } catch (_) {}
+    }
+
+    formatAICost(value) {
+      const n = Number(value || 0);
+      if (n < 0.0001) return `$${n.toFixed(6)}`;
+      if (n < 0.01) return `$${n.toFixed(5)}`;
+      return `$${n.toFixed(4)}`;
+    }
+
     buildNPCDialogueContext(npcId, outgoingMessageId) {
       const s = this.engine.state;
       const npc = s.npcs[npcId];
@@ -1899,6 +1939,7 @@ button:disabled { opacity: .38; cursor: default; }
         }
         const reply = String(data && data.reply || '').trim();
         if (!reply || reply.length > 1200) throw new Error('AI returned an invalid reply');
+        this.recordAIUsage(data);
 
         // Re-check because game state may have advanced while the network request was pending.
         const pending = this.engine.state.scheduledEvents.find(e => e.id === result.replyEventId && e.status === 'queued');
@@ -2059,7 +2100,12 @@ button:disabled { opacity: .38; cursor: default; }
       const aiEndpoint = this.getAIEndpoint();
       const aiStatus = this.getAIStatus();
       const statusText = aiStatus ? `${aiStatus.status}${aiStatus.detail ? ` — ${aiStatus.detail}` : ''}` : (aiEndpoint ? 'Configured; not tested yet.' : 'Local dialogue only.');
-      const aiCard = `<div class="card"><h3>AI dialogue (optional)</h3><p class="meta">Paste either your Vercel site URL or the full /api/dialogue URL. Vercel root URLs are automatically converted to /api/dialogue.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://vercel-dialogue-api-project.vercel.app/api/dialogue" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="secondary" id="aiEndpointTest">Test connection</button></div><div class="meta" style="margin-top:8px">Endpoint: ${this.esc(aiEndpoint || 'none')}</div><div class="meta" style="margin-top:4px">Last AI status: ${this.esc(statusText)}</div></div><div class="divider"></div>`;
+      const usage = this.getAIUsageStats();
+      const lastUsage = usage.last;
+      const usageHtml = lastUsage
+        ? `<div class="divider"></div><h3 style="margin-bottom:8px">Luna usage</h3><div class="debug-summary"><div class="stat"><span class="meta">Last input</span><strong>${lastUsage.inputTokens.toLocaleString()} tokens</strong></div><div class="stat"><span class="meta">Last output</span><strong>${lastUsage.outputTokens.toLocaleString()} tokens</strong></div><div class="stat"><span class="meta">Last estimated cost</span><strong>${this.formatAICost(lastUsage.estimatedCost)}</strong></div><div class="stat"><span class="meta">Browser total</span><strong>${this.formatAICost(usage.estimatedCost)}</strong></div></div><div class="meta">${usage.requests} API request${usage.requests === 1 ? '' : 's'} tracked · ${usage.inputTokens.toLocaleString()} input · ${usage.outputTokens.toLocaleString()} output${usage.cachedInputTokens ? ` · ${usage.cachedInputTokens.toLocaleString()} cached input` : ''}. Cost is an estimate using current GPT-5.6 Luna standard token rates.</div>`
+        : `<div class="divider"></div><div class="meta">Luna usage: waiting for the backend to return token usage.</div>`;
+      const aiCard = `<div class="card"><h3>AI dialogue (optional)</h3><p class="meta">Paste either your Vercel site URL or the full /api/dialogue URL. Vercel root URLs are automatically converted to /api/dialogue.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://vercel-dialogue-api-project.vercel.app/api/dialogue" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="secondary" id="aiEndpointTest">Test connection</button><button class="ghost" id="aiUsageReset">Reset usage counter</button></div><div class="meta" style="margin-top:8px">Endpoint: ${this.esc(aiEndpoint || 'none')}</div><div class="meta" style="margin-top:4px">Last AI status: ${this.esc(statusText)}</div>${usageHtml}</div><div class="divider"></div>`;
       el.innerHTML = `${tests}${aiCard}<div class="debug-summary"><div class="stat"><span class="meta">World time</span><strong>${this.esc(s.world.now)}</strong></div><div class="stat"><span class="meta">Turn</span><strong>${s.meta.turn}</strong></div><div class="stat"><span class="meta">Queued events</span><strong>${queued}</strong></div><div class="stat"><span class="meta">Log entries</span><strong>${s.simulationLog.length}</strong></div></div><h3>Complete internal state</h3><pre class="debug-pre">${this.esc(JSON.stringify(s, null, 2))}</pre>`;
       const aiSave = document.getElementById('aiEndpointSave');
       if (aiSave) aiSave.addEventListener('click', () => {
@@ -2089,10 +2135,17 @@ button:disabled { opacity: .38; cursor: default; }
           if (!response.ok) throw new Error(`HTTP ${response.status}${data && data.error ? `: ${data.error}` : ''}`);
           const reply = String(data && data.reply || '').trim();
           if (!reply) throw new Error('No reply returned');
+          this.recordAIUsage(data);
           this.setAIStatus('connected', reply.slice(0, 180));
         } catch (err) {
           this.setAIStatus('error', err.message);
         }
+        this.renderDebug();
+      });
+      const aiUsageReset = document.getElementById('aiUsageReset');
+      if (aiUsageReset) aiUsageReset.addEventListener('click', () => {
+        this.clearAIUsageStats();
+        this.toast('AI usage counter reset');
         this.renderDebug();
       });
     }
