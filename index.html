@@ -718,7 +718,7 @@ button:disabled { opacity: .38; cursor: default; }
       this.interpreter = new ActionInterpreter();
       this.state.dialogue = this.state.dialogue || { version: 2, threads: {} };
       this.state.dialogue.version = 2;
-      this.state.meta.provider = 'hybrid-context-v4-diagnostics';
+      this.state.meta.provider = 'hybrid-context-v6-owner-lock-diagnostics';
       if (!this.state.ui.lastNarrative) {
         this.state.ui.lastNarrative = this.provider.generateScene(this.state, null);
         this.state.ui.suggestions = this.provider.generateSuggestions(this.state);
@@ -1809,6 +1809,29 @@ button:disabled { opacity: .38; cursor: default; }
       return clean;
     }
 
+
+    getAIAccessToken() {
+      try { return (localStorage.getItem('aiSandboxAiAccessToken') || '').trim(); }
+      catch (_) { return ''; }
+    }
+
+    setAIAccessToken(value) {
+      const clean = String(value || '').trim();
+      try {
+        if (clean) localStorage.setItem('aiSandboxAiAccessToken', clean);
+        else localStorage.removeItem('aiSandboxAiAccessToken');
+      } catch (_) {}
+      return clean;
+    }
+
+    aiRequestHeaders() {
+      const token = this.getAIAccessToken();
+      return {
+        'Content-Type': 'application/json',
+        ...(token ? { 'X-AI-Sandbox-Token': token } : {}),
+      };
+    }
+
     setAIStatus(status, detail = '') {
       const payload = { status, detail: String(detail || ''), at: new Date().toISOString() };
       try { localStorage.setItem('aiSandboxAiStatus', JSON.stringify(payload)); } catch (_) {}
@@ -1919,7 +1942,8 @@ button:disabled { opacity: .38; cursor: default; }
 
     async tryRemoteDialogue(result) {
       const endpoint = this.getAIEndpoint();
-      if (!endpoint || !result || !result.replyEventId) return false;
+      const accessToken = this.getAIAccessToken();
+      if (!endpoint || !accessToken || !result || !result.replyEventId) return false;
       const event = this.engine.state.scheduledEvents.find(e => e.id === result.replyEventId && e.status === 'queued');
       if (!event) return false;
       const context = this.buildNPCDialogueContext(result.npcId, result.outgoingMessageId);
@@ -1928,7 +1952,7 @@ button:disabled { opacity: .38; cursor: default; }
         this.setAIStatus('requesting', endpoint);
         const response = await fetch(endpoint, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: this.aiRequestHeaders(),
           body: JSON.stringify(context),
         });
         let data = null;
@@ -2098,6 +2122,7 @@ button:disabled { opacity: .38; cursor: default; }
       const tests = this.debugTests ? `<div class="card"><h3>Acceptance tests</h3>${this.debugTests.map(t => `<div class="skill-row"><span>${this.esc(t.name)}</span><strong class="${t.pass ? 'test-pass':'test-fail'}">${t.pass ? 'PASS':'FAIL'}</strong></div><div class="meta" style="margin-bottom:8px">${this.esc(t.detail)}</div>`).join('')}</div><div class="divider"></div>` : '';
       const queued = s.scheduledEvents.filter(e => e.status === 'queued' || e.status === 'started').length;
       const aiEndpoint = this.getAIEndpoint();
+      const aiAccessToken = this.getAIAccessToken();
       const aiStatus = this.getAIStatus();
       const statusText = aiStatus ? `${aiStatus.status}${aiStatus.detail ? ` — ${aiStatus.detail}` : ''}` : (aiEndpoint ? 'Configured; not tested yet.' : 'Local dialogue only.');
       const usage = this.getAIUsageStats();
@@ -2105,7 +2130,7 @@ button:disabled { opacity: .38; cursor: default; }
       const usageHtml = lastUsage
         ? `<div class="divider"></div><h3 style="margin-bottom:8px">Luna usage</h3><div class="debug-summary"><div class="stat"><span class="meta">Last input</span><strong>${lastUsage.inputTokens.toLocaleString()} tokens</strong></div><div class="stat"><span class="meta">Last output</span><strong>${lastUsage.outputTokens.toLocaleString()} tokens</strong></div><div class="stat"><span class="meta">Last estimated cost</span><strong>${this.formatAICost(lastUsage.estimatedCost)}</strong></div><div class="stat"><span class="meta">Browser total</span><strong>${this.formatAICost(usage.estimatedCost)}</strong></div></div><div class="meta">${usage.requests} API request${usage.requests === 1 ? '' : 's'} tracked · ${usage.inputTokens.toLocaleString()} input · ${usage.outputTokens.toLocaleString()} output${usage.cachedInputTokens ? ` · ${usage.cachedInputTokens.toLocaleString()} cached input` : ''}. Cost is an estimate using current GPT-5.6 Luna standard token rates.</div>`
         : `<div class="divider"></div><div class="meta">Luna usage: waiting for the backend to return token usage.</div>`;
-      const aiCard = `<div class="card"><h3>AI dialogue (optional)</h3><p class="meta">Paste either your Vercel site URL or the full /api/dialogue URL. Vercel root URLs are automatically converted to /api/dialogue.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://vercel-dialogue-api-project.vercel.app/api/dialogue" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="secondary" id="aiEndpointTest">Test connection</button><button class="ghost" id="aiUsageReset">Reset usage counter</button></div><div class="meta" style="margin-top:8px">Endpoint: ${this.esc(aiEndpoint || 'none')}</div><div class="meta" style="margin-top:4px">Last AI status: ${this.esc(statusText)}</div>${usageHtml}</div><div class="divider"></div>`;
+      const aiCard = `<div class="card"><h3>AI dialogue — owner access</h3><p class="meta">Public players use the local dialogue engine by default. GPT-5.6 Luna requests require your private owner token. The token is stored only in this browser and is never committed to GitHub.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://vercel-dialogue-api-project.vercel.app/api/dialogue" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div class="inline-compose" style="margin-top:8px"><input id="aiAccessTokenInput" type="password" autocomplete="off" placeholder="Owner access token" value="${this.esc(aiAccessToken)}" /><button id="aiAccessTokenSave">Save token</button></div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="secondary" id="aiEndpointTest">Test connection</button><button class="ghost" id="aiUsageReset">Reset usage counter</button></div><div class="meta" style="margin-top:8px">Endpoint: ${this.esc(aiEndpoint || 'none')}</div><div class="meta" style="margin-top:4px">Owner token: ${aiAccessToken ? 'configured on this device' : 'not configured — Luna disabled'}</div><div class="meta" style="margin-top:4px">Last AI status: ${this.esc(statusText)}</div>${usageHtml}</div><div class="divider"></div>`;
       el.innerHTML = `${tests}${aiCard}<div class="debug-summary"><div class="stat"><span class="meta">World time</span><strong>${this.esc(s.world.now)}</strong></div><div class="stat"><span class="meta">Turn</span><strong>${s.meta.turn}</strong></div><div class="stat"><span class="meta">Queued events</span><strong>${queued}</strong></div><div class="stat"><span class="meta">Log entries</span><strong>${s.simulationLog.length}</strong></div></div><h3>Complete internal state</h3><pre class="debug-pre">${this.esc(JSON.stringify(s, null, 2))}</pre>`;
       const aiSave = document.getElementById('aiEndpointSave');
       if (aiSave) aiSave.addEventListener('click', () => {
@@ -2115,11 +2140,22 @@ button:disabled { opacity: .38; cursor: default; }
         this.toast(value ? 'AI endpoint saved' : 'AI endpoint cleared');
         this.renderDebug();
       });
+      const tokenSave = document.getElementById('aiAccessTokenSave');
+      if (tokenSave) tokenSave.addEventListener('click', () => {
+        const input = document.getElementById('aiAccessTokenInput');
+        const value = this.setAIAccessToken(input && input.value);
+        this.setAIStatus(value ? 'owner-token-configured' : 'owner-token-cleared', '');
+        this.toast(value ? 'Owner token saved on this device' : 'Owner token cleared');
+        this.renderDebug();
+      });
       const aiTest = document.getElementById('aiEndpointTest');
       if (aiTest) aiTest.addEventListener('click', async () => {
         const input = document.getElementById('aiEndpointInput');
         const endpoint = this.setAIEndpoint(input && input.value);
+        const tokenInput = document.getElementById('aiAccessTokenInput');
+        if (tokenInput) this.setAIAccessToken(tokenInput.value);
         if (!endpoint) { this.setAIStatus('error', 'No endpoint configured'); this.renderDebug(); return; }
+        if (!this.getAIAccessToken()) { this.setAIStatus('error', 'Owner access token is not configured'); this.renderDebug(); return; }
         aiTest.disabled = true;
         this.setAIStatus('testing', endpoint);
         try {
@@ -2130,7 +2166,7 @@ button:disabled { opacity: .38; cursor: default; }
             knownSituations: [],
             worldTime: this.engine.state.world.now,
           };
-          const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(testPayload) });
+          const response = await fetch(endpoint, { method: 'POST', headers: this.aiRequestHeaders(), body: JSON.stringify(testPayload) });
           let data = null; try { data = await response.json(); } catch (_) {}
           if (!response.ok) throw new Error(`HTTP ${response.status}${data && data.error ? `: ${data.error}` : ''}`);
           const reply = String(data && data.reply || '').trim();
