@@ -718,7 +718,7 @@ button:disabled { opacity: .38; cursor: default; }
       this.interpreter = new ActionInterpreter();
       this.state.dialogue = this.state.dialogue || { version: 2, threads: {} };
       this.state.dialogue.version = 2;
-      this.state.meta.provider = 'hybrid-context-v3';
+      this.state.meta.provider = 'hybrid-context-v4-diagnostics';
       if (!this.state.ui.lastNarrative) {
         this.state.ui.lastNarrative = this.provider.generateScene(this.state, null);
         this.state.ui.suggestions = this.provider.generateSuggestions(this.state);
@@ -1785,13 +1785,41 @@ button:disabled { opacity: .38; cursor: default; }
       catch (_) { return ''; }
     }
 
+    normalizeAIEndpoint(value) {
+      let clean = String(value || '').trim();
+      if (!clean) return '';
+      try {
+        const u = new URL(clean);
+        if (/\.vercel\.app$/i.test(u.hostname) && (!u.pathname || u.pathname === '/')) {
+          u.pathname = '/api/dialogue';
+        }
+        clean = u.toString().replace(/\/$/, '');
+      } catch (_) {
+        clean = clean.replace(/\/$/, '');
+      }
+      return clean;
+    }
+
     setAIEndpoint(value) {
-      const clean = String(value || '').trim().replace(/\/$/, '');
+      const clean = this.normalizeAIEndpoint(value);
       try {
         if (clean) localStorage.setItem('aiSandboxAiEndpoint', clean);
         else localStorage.removeItem('aiSandboxAiEndpoint');
       } catch (_) {}
       return clean;
+    }
+
+    setAIStatus(status, detail = '') {
+      const payload = { status, detail: String(detail || ''), at: new Date().toISOString() };
+      try { localStorage.setItem('aiSandboxAiStatus', JSON.stringify(payload)); } catch (_) {}
+      return payload;
+    }
+
+    getAIStatus() {
+      try {
+        const raw = localStorage.getItem('aiSandboxAiStatus');
+        return raw ? JSON.parse(raw) : null;
+      } catch (_) { return null; }
     }
 
     buildNPCDialogueContext(npcId, outgoingMessageId) {
@@ -1857,13 +1885,18 @@ button:disabled { opacity: .38; cursor: default; }
       const context = this.buildNPCDialogueContext(result.npcId, result.outgoingMessageId);
       if (!context) return false;
       try {
+        this.setAIStatus('requesting', endpoint);
         const response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(context),
         });
-        if (!response.ok) throw new Error(`AI endpoint ${response.status}`);
-        const data = await response.json();
+        let data = null;
+        try { data = await response.json(); } catch (_) {}
+        if (!response.ok) {
+          const serverMessage = data && (data.error || data.message || data.details);
+          throw new Error(`AI endpoint ${response.status}${serverMessage ? `: ${typeof serverMessage === 'string' ? serverMessage : JSON.stringify(serverMessage).slice(0, 240)}` : ''}`);
+        }
         const reply = String(data && data.reply || '').trim();
         if (!reply || reply.length > 1200) throw new Error('AI returned an invalid reply');
 
@@ -1871,13 +1904,15 @@ button:disabled { opacity: .38; cursor: default; }
         const pending = this.engine.state.scheduledEvents.find(e => e.id === result.replyEventId && e.status === 'queued');
         if (!pending) return false;
         pending.payload.incomingBody = reply;
-        pending.payload.dialogueProvider = data.model || 'remote-ai';
+        pending.payload.dialogueProvider = data.model || 'gpt-5.6-luna';
         pending.payload.aiGenerated = true;
+        this.setAIStatus('connected', `${pending.payload.dialogueProvider}: ${reply.slice(0, 140)}`);
         this.engine.log('ai', `Remote dialogue prepared for ${this.engine.state.npcs[result.npcId].name} using ${pending.payload.dialogueProvider}.`);
         this.persist();
         return true;
       } catch (err) {
         console.warn('Remote dialogue unavailable; local fallback retained.', err);
+        this.setAIStatus('error', err.message);
         this.engine.log('ai', `Remote dialogue unavailable; local fallback retained (${err.message}).`);
         this.persist();
         return false;
@@ -2022,13 +2057,42 @@ button:disabled { opacity: .38; cursor: default; }
       const tests = this.debugTests ? `<div class="card"><h3>Acceptance tests</h3>${this.debugTests.map(t => `<div class="skill-row"><span>${this.esc(t.name)}</span><strong class="${t.pass ? 'test-pass':'test-fail'}">${t.pass ? 'PASS':'FAIL'}</strong></div><div class="meta" style="margin-bottom:8px">${this.esc(t.detail)}</div>`).join('')}</div><div class="divider"></div>` : '';
       const queued = s.scheduledEvents.filter(e => e.status === 'queued' || e.status === 'started').length;
       const aiEndpoint = this.getAIEndpoint();
-      const aiCard = `<div class="card"><h3>AI dialogue (optional)</h3><p class="meta">Leave blank to use the free local dialogue engine only. Add your Vercel API endpoint to use GPT-5.6 Luna for NPC text replies while keeping the OpenAI API key off this page.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://vercel-dialogue-api-project.vercel.app/api/dialogue" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div class="meta" style="margin-top:8px">Status: ${aiEndpoint ? 'GPT-5.6 Luna endpoint configured; local fallback remains enabled.' : 'Local dialogue only.'}</div></div><div class="divider"></div>`;
+      const aiStatus = this.getAIStatus();
+      const statusText = aiStatus ? `${aiStatus.status}${aiStatus.detail ? ` — ${aiStatus.detail}` : ''}` : (aiEndpoint ? 'Configured; not tested yet.' : 'Local dialogue only.');
+      const aiCard = `<div class="card"><h3>AI dialogue (optional)</h3><p class="meta">Paste either your Vercel site URL or the full /api/dialogue URL. Vercel root URLs are automatically converted to /api/dialogue.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://vercel-dialogue-api-project.vercel.app/api/dialogue" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="secondary" id="aiEndpointTest">Test connection</button></div><div class="meta" style="margin-top:8px">Endpoint: ${this.esc(aiEndpoint || 'none')}</div><div class="meta" style="margin-top:4px">Last AI status: ${this.esc(statusText)}</div></div><div class="divider"></div>`;
       el.innerHTML = `${tests}${aiCard}<div class="debug-summary"><div class="stat"><span class="meta">World time</span><strong>${this.esc(s.world.now)}</strong></div><div class="stat"><span class="meta">Turn</span><strong>${s.meta.turn}</strong></div><div class="stat"><span class="meta">Queued events</span><strong>${queued}</strong></div><div class="stat"><span class="meta">Log entries</span><strong>${s.simulationLog.length}</strong></div></div><h3>Complete internal state</h3><pre class="debug-pre">${this.esc(JSON.stringify(s, null, 2))}</pre>`;
       const aiSave = document.getElementById('aiEndpointSave');
       if (aiSave) aiSave.addEventListener('click', () => {
         const input = document.getElementById('aiEndpointInput');
         const value = this.setAIEndpoint(input && input.value);
+        this.setAIStatus(value ? 'configured' : 'disabled', value || '');
         this.toast(value ? 'AI endpoint saved' : 'AI endpoint cleared');
+        this.renderDebug();
+      });
+      const aiTest = document.getElementById('aiEndpointTest');
+      if (aiTest) aiTest.addEventListener('click', async () => {
+        const input = document.getElementById('aiEndpointInput');
+        const endpoint = this.setAIEndpoint(input && input.value);
+        if (!endpoint) { this.setAIStatus('error', 'No endpoint configured'); this.renderDebug(); return; }
+        aiTest.disabled = true;
+        this.setAIStatus('testing', endpoint);
+        try {
+          const testPayload = {
+            npc: { name: 'Maya', personality: { conversationalStyle: 'direct' }, current: { mood: 'neutral' }, relationship: { label: 'Close Friend' }, knowledge: { factsKnown: [] }, beliefs: {}, memories: [], plans: {} },
+            recentMessages: [{ sender: 'Maya', text: 'This week was ridiculous.' }, { sender: 'Jonathan', text: 'What happened?' }],
+            playerMessage: 'What happened?',
+            knownSituations: [],
+            worldTime: this.engine.state.world.now,
+          };
+          const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(testPayload) });
+          let data = null; try { data = await response.json(); } catch (_) {}
+          if (!response.ok) throw new Error(`HTTP ${response.status}${data && data.error ? `: ${data.error}` : ''}`);
+          const reply = String(data && data.reply || '').trim();
+          if (!reply) throw new Error('No reply returned');
+          this.setAIStatus('connected', reply.slice(0, 180));
+        } catch (err) {
+          this.setAIStatus('error', err.message);
+        }
         this.renderDebug();
       });
     }
