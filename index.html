@@ -253,7 +253,7 @@ button:disabled { opacity: .38; cursor: default; }
 .test-pass { color: var(--good); }
 .test-fail { color: var(--bad); }
 
-.toast { position: fixed; z-index: 80; left: 50%; top: 18px; transform: translateX(-50%); background: #202c3e; border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 999px; padding: 10px 16px; font-size: 12px; color: var(--text); }
+.toast { position: fixed; z-index: 80; left: 50%; top: 18px; transform: translateX(-50%); background: #202c3e; border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 999px; padding: 10px 14px; font-size: 12px; }
 
 @media (max-width: 620px) {
   .suggestions { grid-template-columns: 1fr; }
@@ -407,10 +407,10 @@ button:disabled { opacity: .38; cursor: default; }
         { id: 'tx_3', at: addMinutesISO(start, -3000), amount: 26.12, direction: 'out', description: 'Gas', balanceAfter: 2180.00 },
       ],
       locations: {
-        home: { id: 'home', name: "Jonathan's Apartment", type: 'home', description: 'A modest apartment with a living room, kitchen, bedroom, and small balcony.', objects: ['couch', 'television', 'chair', 'bed', 'kitchen table'], travel: { work: 18, grocery: 11, coffee: 10, park: 14, maya_home: 16, daniel_home: 22 } },
-        work: { id: 'work', name: 'North Valley Orthodontics', type: 'work', description: 'A small orthodontic office with a front desk, waiting area, and clinical rooms.', objects: ['front desk', 'waiting chairs', 'operatory', 'supply cabinet'], travel: { home: 18, auto_shop: 12, grocery: 10, coffee: 6, park: 17 } },
+        home: { id: 'home', name: "Jonathan's Apartment", type: 'home', description: 'A modest apartment with a living room, kitchen, bedroom, and small balcony.', objects: ['couch', 'television', 'charger', 'shower', 'bedroom window'], travel: { work: 18, maya_home: 16, daniel_home: 21, grocery: 7, coffee: 9, park: 11, auto_shop: 14 } },
+        work: { id: 'work', name: 'North Valley Orthodontics', type: 'work', description: 'A small orthodontic office with a front desk, waiting area, and clinical rooms.', objects: ['front desk', 'computer', 'break room'], travel: { home: 18, coffee: 6, grocery: 10 } },
         maya_home: { id: 'maya_home', name: "Maya's Apartment", type: 'residence', description: 'Maya lives here. Jonathan has visited before.', objects: [], travel: { home: 16, coffee: 8, park: 9 } },
-        daniel_home: { id: 'daniel_home', name: "Daniel's Place", type: 'residence', description: 'Daniel rents a small place on the other side of town.', objects: [], travel: { home: 21, work: 15, coffee: 12, park: 18 } },
+        daniel_home: { id: 'daniel_home', name: "Daniel's Place", type: 'residence', description: 'Daniel rents a small place on the other side of town.', objects: [], travel: { home: 21, work: 15, coffee: 12 } },
         grocery: { id: 'grocery', name: 'Neighborhood Market', type: 'store', description: 'A nearby grocery store.', objects: [], travel: { home: 7, work: 10, coffee: 5 } },
         coffee: { id: 'coffee', name: 'Juniper Coffee', type: 'business', description: 'A casual coffee shop Jonathan knows.', objects: [], travel: { home: 9, work: 6, maya_home: 8, daniel_home: 12 } },
         park: { id: 'park', name: 'Creekside Park', type: 'park', description: 'A neighborhood park with paths and benches.', objects: [], travel: { home: 11, maya_home: 9 } },
@@ -422,22 +422,22 @@ button:disabled { opacity: .38; cursor: default; }
       npcs: {
         maya: {
           id: 'maya', name: 'Maya', age: 30, occupation: 'Office administrator', homeLocationId: 'maya_home',
-          personality: { traits: ['observant', 'independent', 'dry humor'], temperament: 'steady', conversationalStyle: 'direct', preferences: ['quiet plans', 'good coffee'], dislikes: ['being pressured', 'small talk in the morning'] },
+          personality: { traits: ['observant', 'independent', 'dry humor'], temperament: 'steady', conversationalStyle: 'direct', preferences: ['quiet plans', 'good coffee'], dislikes: ['being pressured'] },
           current: { locationId: 'maya_home', activity: 'at home', mood: 'tired', money: 3120, immediateGoal: 'decompress after the week', longTermGoals: ['find work with better hours'] },
           relationship: { label: 'Close Friend', trust: 74, affection: 71, respect: 66, attraction: 22, fear: 0, resentment: 4, familiarity: 82 },
-          knowledge: { factsKnown: ['Jonathan lives at his apartment', 'Jonathan works at an orthodontic office'], suspicions: [], falseBeliefs: ['Jonathan probably has around $4,000 available'], secretsKnown: ['Jonathan has been stressed about money'], unknownTopics: ['Jonathan exact finances'] },
+          knowledge: { factsKnown: ['Jonathan lives at his apartment', 'Jonathan works at an orthodontic office'], suspicions: [], falseBeliefs: ['Jonathan probably has around $4,000 available'], secretsKnown: [], unknownTopics: ['Jonathan exact bank balance'] },
           beliefs: {
             playerCheckingBalance: { value: 4000, confidence: 0.56, basis: 'rough impression from an older conversation', status: 'incorrect', updatedAt: addMinutesISO(start, -8000) },
           },
           memories: [
-            { id: 'mem_m_1', event: 'Jonathan helped Maya move a heavy desk last year.', timestamp: addMinutesISO(start, -60000), people: ['jonathan', 'maya'], witnesses: ['maya'], emotionalValence: 0.5, emotionalStrength: 0.7, importance: 0.4, decay: 'moderate', private: false, secret: false },
+            { id: 'mem_m_1', event: 'Jonathan helped Maya move a heavy desk last year.', timestamp: addMinutesISO(start, -60000), people: ['jonathan', 'maya'], witnesses: ['maya'], emotionalValence: 0.5, emotionalStrength: 0.45, importance: 0.5, confidence: 1, private: false, secret: false, decay: 'slow', consequences: ['Maya sees Jonathan as dependable in practical situations.'] },
           ],
           plans: { scheduleType: 'office-weekday', upcomingCommitments: [], personalGoals: ['check two job listings this week'], unresolvedProblems: ['work schedule has been irritating lately'] },
           phone: { contactSaved: true, threadId: 'thread_maya' },
         },
         daniel: {
           id: 'daniel', name: 'Daniel', age: 32, occupation: 'Dental assistant', homeLocationId: 'daniel_home',
-          personality: { traits: ['friendly', 'restless', 'practical'], temperament: 'easygoing', conversationalStyle: 'casual', preferences: ['pickup basketball', 'late dinners'], dislikes: ['long meetings', 'being made to wait'] },
+          personality: { traits: ['friendly', 'restless', 'practical'], temperament: 'easygoing', conversationalStyle: 'casual', preferences: ['pickup basketball', 'late dinners'], dislikes: ['long meetings'] },
           current: { locationId: 'daniel_home', activity: 'at home', mood: 'neutral', money: 1840, immediateGoal: 'decide whether to work out', longTermGoals: ['save for a trip'] },
           relationship: { label: 'Friend', trust: 61, affection: 55, respect: 59, attraction: 0, fear: 0, resentment: 1, familiarity: 64 },
           knowledge: { factsKnown: ['Jonathan works in orthodontics'], suspicions: [], falseBeliefs: [], secretsKnown: [], unknownTopics: ['Jonathan exact finances'] },
@@ -471,16 +471,16 @@ button:disabled { opacity: .38; cursor: default; }
         ],
       },
       scheduledEvents: [
-        { id: 'evt_work_1', type: 'appointment', title: 'Work shift', triggerAt: workStart, deadlineAt: addMinutesISO(workStart, 45), locationId: 'work', requiresPresence: true, status: 'queued', visibility: 'known', recurrence: null },
-        { id: 'evt_auto_1', type: 'appointment', title: 'Oil-change appointment', triggerAt: oilStart, deadlineAt: addMinutesISO(oilStart, 30), locationId: 'auto_shop', requiresPresence: true, status: 'queued', visibility: 'known', recurrence: null },
-        { id: 'evt_rent_1', type: 'reminder', title: 'Rent due soon', triggerAt: rentDate, deadlineAt: null, locationId: null, requiresPresence: false, status: 'queued', visibility: 'known', recurrence: 'monthly' },
-        { id: 'evt_dad_call_1', type: 'npc_call', title: 'Dad intends to call', triggerAt: dadCall, deadlineAt: null, locationId: null, requiresPresence: false, status: 'queued', visibility: 'hidden', recurrence: null },
-        { id: 'evt_maya_private_1', type: 'npc_private', title: 'Maya work frustration', triggerAt: privateMaya, deadlineAt: null, locationId: 'work', requiresPresence: false, status: 'queued', visibility: 'hidden', recurrence: null },
+        { id: 'evt_work_1', type: 'appointment', title: 'Work shift', triggerAt: workStart, deadlineAt: addMinutesISO(workStart, 45), locationId: 'work', requiresPresence: true, status: 'queued', visibility: 'known', recurrence: null, consequence: 'work-shift' },
+        { id: 'evt_auto_1', type: 'appointment', title: 'Oil-change appointment', triggerAt: oilStart, deadlineAt: addMinutesISO(oilStart, 30), locationId: 'auto_shop', requiresPresence: true, status: 'queued', visibility: 'known', recurrence: null, consequence: 'appointment' },
+        { id: 'evt_rent_1', type: 'reminder', title: 'Rent due soon', triggerAt: rentDate, deadlineAt: null, locationId: null, requiresPresence: false, status: 'queued', visibility: 'known', recurrence: 'monthly', consequence: 'reminder' },
+        { id: 'evt_dad_call_1', type: 'npc_call', title: 'Dad intends to call', triggerAt: dadCall, deadlineAt: null, locationId: null, requiresPresence: false, status: 'queued', visibility: 'hidden', recurrence: null, npcId: 'dad' },
+        { id: 'evt_maya_private_1', type: 'npc_private', title: 'Maya work frustration', triggerAt: privateMaya, deadlineAt: null, locationId: 'work', requiresPresence: false, status: 'queued', visibility: 'hidden', recurrence: null, npcId: 'maya', payload: { kind: 'work-frustration' } },
       ],
       activeSituations: [
-        { id: 'sit_car', title: 'Car squeak', status: 'active', involvedPeople: ['jonathan'], knownInformation: ['A brief squeak has been audible on some cold starts.'], hiddenInformation: { cause: 'The belt is wearing slightly and is due for a check.' } },
-        { id: 'sit_shift', title: 'Possible shift swap', status: 'active', involvedPeople: ['jonathan', 'daniel'], knownInformation: ['Daniel asked whether Jonathan might trade one upcoming shift. No decision has been made.'], hiddenInformation: { leverage: 'Jonathan could get a better day off if he asks at the right time.' } },
-        { id: 'sit_groceries', title: 'Low groceries', status: 'active', involvedPeople: ['jonathan'], knownInformation: ['There is enough food for tonight, but breakfast options are limited.'], hiddenInformation: { urgency: 'A few staples are missing and will matter later in the week.' } },
+        { id: 'sit_car', title: 'Car squeak', status: 'active', involvedPeople: ['jonathan'], knownInformation: ['A brief squeak has been audible on some cold starts.'], hiddenInformation: { cause: 'A worn accessory-belt tensioner is beginning to chatter.' }, possibleFutureDevelopments: ['It may remain intermittent.', 'A mechanic could diagnose it.', 'It could become louder over time.'], deadlineAt: null, consequences: [], urgency: 'low' },
+        { id: 'sit_shift', title: 'Possible shift swap', status: 'active', involvedPeople: ['jonathan', 'daniel'], knownInformation: ['Daniel asked whether Jonathan might trade one upcoming shift. No decision has been made.'], hiddenInformation: {}, possibleFutureDevelopments: ['Jonathan can ask which shift Daniel means.', 'Daniel may solve the schedule another way.'], deadlineAt: addMinutesISO(workStart, 60 * 36), consequences: [], urgency: 'low' },
+        { id: 'sit_groceries', title: 'Low groceries', status: 'active', involvedPeople: ['jonathan'], knownInformation: ['There is enough food for tonight, but breakfast options are limited.'], hiddenInformation: {}, possibleFutureDevelopments: ['Shop later.', 'Use what is already at home.'], deadlineAt: null, consequences: [], urgency: 'low' },
       ],
       journal: {
         recentMajorEvents: [],
@@ -812,7 +812,7 @@ button:disabled { opacity: .38; cursor: default; }
         case 'sleep': return this.resolveSleep(action);
         case 'wait': return { ok: true, type: action.type, minutes: action.minutes, narrative: action.minutes >= 120 ? 'You let a few quiet hours pass.' : 'You let some time pass without doing much.' };
         case 'purchase': return this.resolvePurchase(action);
-        case 'eat': s.player.condition.hunger = Math.max(5, s.player.condition.hunger - 42); return { ok: true, type: action.type, minutes: 25, narrative: 'You make something simple to eat and finish it before the evening stretches further.' };
+        case 'eat': s.player.condition.hunger = Math.max(5, s.player.condition.hunger - 42); return { ok: true, type: action.type, minutes: 25, narrative: 'You make something simple to eat and finish the meal.' };
         case 'work': return this.resolveWork(action);
         case 'promise': return this.resolvePromise(action);
         case 'observe': return this.resolveObserve(action);
@@ -829,7 +829,7 @@ button:disabled { opacity: .38; cursor: default; }
       s.messages[thread].push(msg);
       this.log('message', `Message sent to ${npc.name}.`);
       const delay = 2 + Math.floor(seededRandom(s) * 18);
-      s.scheduledEvents.push({ id: makeId('evt', s), type: 'message_response', title: `${npc.name} reply`, triggerAt: addMinutesISO(s.world.now, delay), deadlineAt: null, status: 'queued', visibility: 'hidden', recurrence: null, locationId: null, requiresPresence: false });
+      s.scheduledEvents.push({ id: makeId('evt', s), type: 'message_response', title: `${npc.name} reply`, triggerAt: addMinutesISO(s.world.now, delay), deadlineAt: null, status: 'queued', visibility: 'hidden', npcId: npc.id, payload: { respondingTo: msg.id, incomingBody: this.composeReply(npc, action.body) } });
       if (/thank|appreciate|checking on you|hope you're okay|how are you/i.test(action.body)) this.changeRelationship(npc.id, { trust: 1, affection: 1 }, `Jonathan sent a considerate message: "${action.body}"`);
       return { ok: true, type: action.type, minutes: 1, narrative: `You text ${npc.name}: “${action.body}”` };
     }
@@ -837,7 +837,7 @@ button:disabled { opacity: .38; cursor: default; }
     composeReply(npc, body) {
       const lower = body.toLowerCase();
       if (/late/.test(lower)) return npc.id === 'maya' ? 'No problem. Just let me know when you’re actually heading over.' : 'All good. Just text me when you’re on the way.';
-      if (/how .*night|how are you|okay/.test(lower)) return npc.id === 'maya' ? 'I’m okay. Just tired. I’m trying not to think about work for the rest of tonight.' : 'Doing fine. Pretty normal night.';
+      if (/how .*night|how are you|okay/.test(lower)) return npc.id === 'maya' ? 'I’m okay. Just tired. I’m trying not to think about work for the rest of tonight.' : 'Doing fine. Pretty normal night over here.';
       if (/shift/.test(lower) && npc.id === 'daniel') return 'Yeah, I meant the later shift. I can send you the exact day if you want.';
       if (/help|saturday/.test(lower)) return 'That would help. I’ll confirm the time with you before then.';
       return npc.id === 'dad' ? 'Sounds good. Give me a call when you have a minute.' : 'Yeah, that works.';
@@ -849,7 +849,6 @@ button:disabled { opacity: .38; cursor: default; }
       if (!reachable) return { ok: true, type: action.type, minutes: 2, narrative: `${npc.name} does not answer. The call rolls to voicemail.` };
       this.markThreadRead(npc.phone.threadId);
       this.addMemory(npc.id, { event: `Jonathan called ${npc.name} and they spoke briefly.`, emotionalValence: 0.1, emotionalStrength: 0.1, importance: 0.15, decay: 'normal', private: false, secret: false });
-      this.changeRelationship(npc.id, { trust: 1 }, `Jonathan checked in by phone.`);
       return { ok: true, type: action.type, minutes: 8, narrative: `${npc.name} answers. You have a brief, ordinary conversation.` };
     }
 
@@ -889,8 +888,8 @@ button:disabled { opacity: .38; cursor: default; }
         source = 'cash';
       } else {
         s.player.money.checking -= action.amount;
+        s.bankTransactions.push({ id: makeId('tx', s), at: s.world.now, amount: action.amount, direction: 'out', description: action.raw.replace(/^i\s+/i, '').slice(0, 80), balanceAfter: s.player.money.checking });
       }
-      s.bankTransactions.push({ id: makeId('tx', s), at: s.world.now, amount: action.amount, direction: 'out', description: action.raw.replace(/^i\s+/i, '').slice(0, 80), balanceAfter: s.player.money.checking });
       this.log('money', `Spent ${formatMoney(action.amount)} from ${source}.`);
       return { ok: true, type: action.type, minutes: 4, narrative: `You spend ${formatMoney(action.amount)}${source === 'cash' ? ' in cash' : ''}.` };
     }
@@ -914,7 +913,7 @@ button:disabled { opacity: .38; cursor: default; }
         this.addMemory(npc.id, { event: `Jonathan made a promise: ${action.raw}`, emotionalValence: 0.25, emotionalStrength: 0.3, importance: 0.7, decay: 'none', private: false, secret: false });
         this.changeRelationship(npc.id, { trust: 1 }, `Jonathan made a clear commitment to ${npc.name}.`);
       }
-      if (action.when) s.scheduledEvents.push({ id: makeId('evt', s), type: 'promise_due', title: npc ? `Promise to ${npc.name}` : 'Promise', triggerAt: action.when, deadlineAt: addMinutesISO(action.when, 120), status: 'queued', visibility: 'known', recurrence: null, locationId: null, requiresPresence: false });
+      if (action.when) s.scheduledEvents.push({ id: makeId('evt', s), type: 'promise_due', title: npc ? `Promise to ${npc.name}` : 'Promise', triggerAt: action.when, deadlineAt: addMinutesISO(action.when, 180), status: 'queued', visibility: 'known', requiresPresence: false, payload: { promiseId: promise.id } });
       return { ok: true, type: action.type, minutes: 2, narrative: `You make the commitment${npc ? ` to ${npc.name}` : ''}${action.when ? ' and put the timing in mind' : ''}.` };
     }
 
@@ -924,7 +923,7 @@ button:disabled { opacity: .38; cursor: default; }
         Object.keys(s.messages).forEach(t => this.markThreadRead(t));
         return { ok: true, type: action.type, minutes: 2, narrative: 'You check your phone and read the waiting messages.' };
       }
-      if (lower.includes('window') && s.world.playerLocationId === 'home') return { ok: true, type: action.type, minutes: 2, narrative: 'You look through the bedroom window. Nothing unusual stands out.' };
+      if (lower.includes('window') && s.world.playerLocationId === 'home') return { ok: true, type: action.type, minutes: 2, narrative: 'You look through the bedroom window. Nothing unusual stands out from what you can see.' };
       const present = Object.values(s.npcs).filter(n => n.current.locationId === s.world.playerLocationId);
       if (present.length && present.some(n => lower.includes(n.name.toLowerCase()))) {
         const n = present.find(n => lower.includes(n.name.toLowerCase()));
@@ -939,7 +938,7 @@ button:disabled { opacity: .38; cursor: default; }
       if (action.implausibleClaim) {
         this.changeRelationship(npc.id, { respect: -1 }, `${npc.name} was given an obviously implausible explanation.`);
         this.addMemory(npc.id, { event: `Jonathan made an implausible claim: ${action.raw}`, emotionalValence: -0.1, emotionalStrength: 0.15, importance: 0.25, decay: 'normal', private: false, secret: false });
-        return { ok: true, type: action.type, minutes: 4, outcome: 'disbelieved', narrative: `${npc.name} listens, but the explanation is too implausible to be convincing. ${npc.name} does not appear persuaded.` };
+        return { ok: true, type: action.type, minutes: 4, outcome: 'disbelieved', narrative: `${npc.name} listens, but the explanation is too implausible to be convincing. ${npc.name} does not appear to believe it.` };
       }
       if (action.persuasive) {
         const skill = s.player.skills.persuasion / 100;
@@ -947,7 +946,7 @@ button:disabled { opacity: .38; cursor: default; }
         const chance = Math.min(0.9, 0.28 + skill * 0.42 + rel * 0.2);
         const success = seededRandom(s) < chance;
         if (success) this.changeRelationship(npc.id, { respect: 1 }, `A reasonable persuasive conversation landed well.`);
-        return { ok: true, type: action.type, minutes: 8, outcome: success ? 'success' : 'failure', narrative: success ? `${npc.name} considers what you say and seems persuaded.` : `${npc.name} hears you out but remains unconvinced.` };
+        return { ok: true, type: action.type, minutes: 8, outcome: success ? 'success' : 'failure', narrative: success ? `${npc.name} considers what you say and seems persuaded.` : `${npc.name} hears you out but does not agree.` };
       }
       if (/thank|appreciate|sorry/i.test(action.raw)) this.changeRelationship(npc.id, { trust: 1, affection: 1 }, `Jonathan spoke considerately to ${npc.name}.`);
       this.addMemory(npc.id, { event: `Conversation with Jonathan: ${action.raw}`, emotionalValence: 0, emotionalStrength: 0.08, importance: 0.12, decay: 'fast', private: false, secret: false });
@@ -1003,92 +1002,679 @@ button:disabled { opacity: .38; cursor: default; }
       }
       if (npc.id === 'daniel') {
         if (weekday && mins >= 9 * 60 && mins < 17 * 60) return { locationId: 'work', activity: 'working' };
-        if ((day === 1 || day === 3 || day === 5) && mins >= 18 * 60 && mins < 19 * 60) return { locationId: 'gym', activity: 'working out' };
+        if (weekday && mins >= 18 * 60 + 30 && mins < 20 * 60) return { locationId: 'gym', activity: 'working out' };
         return { locationId: 'daniel_home', activity: 'at home' };
       }
       if (npc.id === 'dad') {
-        if (weekday && mins >= 8 * 60 && mins < 17 * 60) return { locationId: 'dad_studio', activity: 'working' };
-        if (!weekday && mins >= 18 * 60 && mins < 20 * 60) return { locationId: 'dad_home', activity: 'at home' };
+        if (weekday && mins >= 8 * 60 && mins < 16 * 60 + 30) return { locationId: 'dad_studio', activity: 'working' };
         return { locationId: 'dad_home', activity: 'at home' };
       }
-      return { locationId: npc.homeLocationId || 'home', activity: 'at home' };
+      return { locationId: npc.homeLocationId, activity: 'at home' };
     }
 
     processScheduledEvents(from, to) {
-      const s = this.state;
-      const visible = [];
-      const newEvents = [];
-      s.scheduledEvents.forEach(event => {
-        const trigger = asDate(event.triggerAt);
-        const deadline = event.deadlineAt ? asDate(event.deadlineAt) : null;
-        if (trigger >= asDate(from) && trigger <= asDate(to)) {
-          if (event.type === 'appointment') {
-            visible.push({ text: `${event.title} is coming up.` });
+      const s = this.state; const visible = [];
+      const due = s.scheduledEvents.filter(e => e.status === 'queued' && asDate(e.triggerAt) <= asDate(to)).sort((a, b) => asDate(a.triggerAt) - asDate(b.triggerAt));
+      for (const event of due) {
+        if (event.type === 'message_response') {
+          const npc = s.npcs[event.npcId]; const thread = npc.phone.threadId;
+          s.messages[thread].push({ id: makeId('msg', s), at: event.triggerAt, senderId: npc.id, recipientId: 'jonathan', body: event.payload.incomingBody, read: false });
+          event.status = 'completed';
+          visible.push({ type: 'message', text: `A message from ${npc.name} arrives.` });
+          this.log('event', `Incoming message from ${npc.name}.`);
+        } else if (event.type === 'npc_call') {
+          const npc = s.npcs[event.npcId];
+          const thread = npc.phone.threadId;
+          s.messages[thread].push({ id: makeId('msg', s), at: event.triggerAt, senderId: npc.id, recipientId: 'jonathan', body: 'Tried calling. Nothing urgent—call me when you have a minute.', read: false });
+          event.status = 'completed';
+          visible.push({ type: 'call', text: `${npc.name} tries to call. If you do not answer in the moment, a short message follows.` });
+          this.log('event', `${npc.name} call event processed.`);
+        } else if (event.type === 'npc_private') {
+          this.processPrivateNPCEvent(event);
+          event.status = 'completed';
+          this.log('event', `Private NPC event processed for ${event.npcId}.`, true);
+        } else if (event.type === 'reminder') {
+          event.status = 'completed';
+          visible.push({ type: 'reminder', text: `Your calendar reminder appears: ${event.title}.` });
+          this.log('event', `Reminder delivered: ${event.title}.`);
+          if (event.recurrence === 'monthly') this.rescheduleMonthly(event);
+        } else if (event.type === 'promise_due') {
+          event.status = 'completed';
+          const promise = s.player.promises.find(p => p.id === event.payload.promiseId);
+          if (promise && promise.status === 'active') {
+            visible.push({ type: 'promise', text: `The time you had in mind for a promise has arrived: ${promise.text}.` });
+            this.log('event', `Promise due: ${promise.text}`);
           }
-          if (event.type === 'npc_call') {
-            if (event.visibility !== 'hidden') visible.push({ text: `Your dad may call soon.` });
+        } else if (event.type === 'appointment') {
+          const atPlace = s.world.playerLocationId === event.locationId;
+          if (atPlace) {
+            event.status = 'attended';
+            visible.push({ type: 'appointment', text: `${event.title} is now underway.` });
+            this.log('event', `Appointment attended: ${event.title}.`);
+          } else if (event.deadlineAt && asDate(to) > asDate(event.deadlineAt)) {
+            event.status = 'missed';
+            s.journal.recentMajorEvents.unshift({ at: to, text: `Missed: ${event.title}` });
+            visible.push({ type: 'missed', text: `You realize you have missed ${event.title.toLowerCase()}.` });
+            this.log('event', `Appointment missed: ${event.title}.`);
+            if (event.consequence === 'work-shift') this.applyMissedWorkConsequence(event);
+          } else {
+            event.status = 'started';
+            visible.push({ type: 'appointment', text: `${event.title} has started, and you are not there yet.` });
+            this.log('event', `Appointment started while player absent: ${event.title}.`);
           }
         }
-        if (deadline && deadline >= asDate(from) && deadline <= asDate(to)) {
-          event.status = 'missed';
-          visible.push({ text: `${event.title} has passed.` });
-        }
+      }
+
+      // Started appointments can become missed as more time passes.
+      s.scheduledEvents.filter(e => e.status === 'started' && e.deadlineAt && asDate(to) > asDate(e.deadlineAt)).forEach(event => {
+        event.status = 'missed';
+        s.journal.recentMajorEvents.unshift({ at: to, text: `Missed: ${event.title}` });
+        visible.push({ type: 'missed', text: `The window for ${event.title.toLowerCase()} passes. It is now missed.` });
+        this.log('event', `Started appointment became missed: ${event.title}.`);
+        if (event.consequence === 'work-shift') this.applyMissedWorkConsequence(event);
       });
-      s.scheduledEvents = s.scheduledEvents.filter(evt => evt.status !== 'missed' || evt.recurrence);
       return visible;
     }
 
-    markThreadRead(threadId) {
+    checkAttendanceOnArrival(locationId) {
       const s = this.state;
-      Object.entries(s.messages).forEach(([id, msgs]) => {
-        if (id === threadId) msgs.forEach(m => { if (m.recipientId === 'jonathan') m.read = true; });
+      s.scheduledEvents.filter(e => (e.status === 'queued' || e.status === 'started') && e.locationId === locationId).forEach(event => {
+        if (asDate(s.world.now) >= asDate(event.triggerAt) && (!event.deadlineAt || asDate(s.world.now) <= asDate(event.deadlineAt))) {
+          event.status = 'attended';
+          this.log('event', `Arrival satisfied event: ${event.title}.`);
+        }
       });
     }
 
-    addMemory(npcId, memory) {
-      const s = this.state; s.npcs[npcId].memories.push({ id: makeId('mem', s), ...memory });
+    applyMissedWorkConsequence(event) {
+      const s = this.state;
+      if (!s.activeSituations.some(x => x.id === `sit_${event.id}`)) {
+        s.activeSituations.push({ id: `sit_${event.id}`, title: 'Missed work shift', status: 'active', involvedPeople: ['jonathan'], knownInformation: ['Jonathan missed a scheduled shift without being at the office during the arrival window.'], hiddenInformation: {}, possibleFutureDevelopments: ['The office may ask what happened.', 'Repeated attendance issues could affect employment.'], deadlineAt: null, consequences: ['Attendance record affected'], urgency: 'medium' });
+      }
     }
 
-    changeRelationship(npcId, deltas, reason) {
-      const s = this.state; const npc = s.npcs[npcId];
-      Object.entries(deltas).forEach(([k, v]) => { npc.relationship[k] = Math.max(0, Math.min(100, (npc.relationship[k] || 0) + v)); });
-      if (reason) this.log('relationship', `${npc.name}: ${reason}`, true);
+    processPrivateNPCEvent(event) {
+      const s = this.state; const npc = s.npcs[event.npcId];
+      if (!npc) return;
+      if (event.payload && event.payload.kind === 'work-frustration') {
+        npc.current.mood = 'annoyed';
+        npc.plans.unresolvedProblems = npc.plans.unresolvedProblems || [];
+        if (!npc.plans.unresolvedProblems.includes('manager denied a schedule request')) npc.plans.unresolvedProblems.push('manager denied a schedule request');
+        this.addMemory(npc.id, { event: 'Her manager denied a schedule request during work.', emotionalValence: -0.45, emotionalStrength: 0.5, importance: 0.45, decay: 'slow', private: true, secret: false, witnesses: ['maya'] });
+      }
+    }
+
+    rescheduleMonthly(event) {
+      const s = this.state; const d = asDate(event.triggerAt); d.setMonth(d.getMonth() + 1);
+      s.scheduledEvents.push({ ...clone(event), id: makeId('evt', s), triggerAt: nowISO(d), status: 'queued' });
+    }
+
+    markThreadRead(threadId) {
+      (this.state.messages[threadId] || []).forEach(m => { if (m.recipientId === 'jonathan') m.read = true; });
+    }
+
+    addMemory(npcId, data) {
+      const npc = this.state.npcs[npcId]; if (!npc) return null;
+      const memory = {
+        id: makeId('mem', this.state), event: data.event, timestamp: data.timestamp || this.state.world.now,
+        people: data.people || ['jonathan', npcId], witnesses: data.witnesses || [npcId], emotionalValence: data.emotionalValence || 0,
+        emotionalStrength: data.emotionalStrength || 0, importance: data.importance || 0.2, confidence: data.confidence == null ? 1 : data.confidence,
+        private: Boolean(data.private), secret: Boolean(data.secret), decay: data.decay || 'normal', consequences: data.consequences || [],
+      };
+      npc.memories.push(memory);
+      this.log('memory', `Memory created for ${npc.name}: ${memory.event}`, true);
+      return memory;
+    }
+
+    changeRelationship(npcId, changes, reason) {
+      const npc = this.state.npcs[npcId]; if (!npc) return;
+      const applied = [];
+      for (const [key, delta] of Object.entries(changes)) {
+        if (typeof npc.relationship[key] !== 'number') continue;
+        npc.relationship[key] = Math.max(0, Math.min(100, npc.relationship[key] + delta));
+        applied.push(`${key} ${delta >= 0 ? '+' : ''}${delta}`);
+      }
+      if (applied.length) this.log('relationship', `${npc.name}: ${applied.join(', ')}. Reason: ${reason}`, true);
     }
 
     updateSituations() {
       const s = this.state;
-      s.activeSituations.forEach(sit => {
-        if (sit.title === 'Low groceries' && s.player.condition.hunger > 60) sit.status = 'active';
-      });
+      for (const sit of s.activeSituations) {
+        if (sit.status !== 'active') continue;
+        if (sit.deadlineAt && asDate(s.world.now) > asDate(sit.deadlineAt)) {
+          sit.status = 'expired';
+          s.journal.completedSituations.unshift({ at: s.world.now, title: sit.title, result: 'Expired without direct resolution.' });
+          this.log('situation', `Situation expired: ${sit.title}.`, true);
+        }
+      }
     }
 
     compressHistoryIfNeeded() {
       const s = this.state;
-      if (s.recentEvents.length > 40) s.recentEvents = s.recentEvents.slice(-40);
-    }
-
-    checkAttendanceOnArrival(locationId) {
-      const s = this.state; const event = s.scheduledEvents.find(e => e.locationId === locationId && e.requiresPresence && e.status === 'queued' && asDate(e.triggerAt) <= asDate(s.world.now));
-      if (event && event.status === 'queued') {
-        event.status = 'attended';
-        this.log('attendance', `${event.title} was attended at ${locationId}.`, true);
-      }
-    }
-
-    setSaveKey() {
-      return DEFAULT_SAVE_KEY;
+      if (s.recentEvents.length < 40) return;
+      const old = s.recentEvents.splice(0, 25);
+      s.historicalSummaries.push({ through: old[old.length - 1].at, summary: `${old.length} lower-priority events were compressed. Important canonical facts, memories, promises, and active situations were retained.` });
+      this.log('history', 'Older low-value events compressed.', true);
     }
   }
 
+  function relationDescriptor(v) {
+    if (v >= 80) return 'Very high';
+    if (v >= 65) return 'High';
+    if (v >= 45) return 'Moderate';
+    if (v >= 25) return 'Low';
+    return 'Very low';
+  }
+
+  function skillDescriptor(v) {
+    if (v >= 75) return 'Strong';
+    if (v >= 60) return 'Capable';
+    if (v >= 45) return 'Average';
+    if (v >= 30) return 'Limited';
+    return 'Weak';
+  }
+
+  function publicNPCView(npc) {
+    return {
+      id: npc.id, name: npc.name, occupation: npc.occupation, relationship: npc.relationship.label,
+      trust: relationDescriptor(npc.relationship.trust), generalTone: npc.relationship.resentment > 20 ? 'Tense' : npc.relationship.affection > 65 ? 'Warm' : 'Normal',
+      lastMemory: npc.memories.filter(m => !m.secret).slice(-1)[0] || null,
+    };
+  }
+
+  function runAcceptanceTests() {
+    const report = [];
+    const check = (name, fn) => {
+      try { const detail = fn(); report.push({ name, pass: true, detail: detail || 'Passed' }); }
+      catch (err) { report.push({ name, pass: false, detail: err.message || String(err) }); }
+    };
+    const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
+    const fixed = '2026-09-20T18:34:00';
+
+    check('1 — Unsupported teleport is rejected', () => {
+      const e = new SimulationEngine(createInitialState({ startTime: fixed, seed: 1 }));
+      const r = e.perform('I teleport to Paris.');
+      assert(r.results[0].ok === false, 'Teleport was not rejected.');
+    });
+
+    check('2 — Multi-action input resolves in sequence', () => {
+      const e = new SimulationEngine(createInitialState({ startTime: fixed, seed: 2 }));
+      e.perform("I text Maya that I'll be late, grab my jacket, and drive to Daniel's.");
+      assert(e.state.messages.thread_maya.some(m => m.senderId === 'jonathan'), 'Text was not sent.');
+      assert(e.state.player.inventory.includes('jacket'), 'Jacket was not grabbed.');
+      assert(e.state.world.playerLocationId === 'daniel_home', 'Travel did not finish at Daniel’s.');
+    });
+
+    check('3 — Private NPC events do not leak into narration', () => {
+      const s = createInitialState({ startTime: fixed, seed: 3 });
+      s.scheduledEvents.push({ id: 'private_test', type: 'npc_private', title: 'Private test', triggerAt: addMinutesISO(fixed, 5), status: 'queued', visibility: 'hidden', npcId: 'maya', payload: { kind: 'work-frustration' } });
+      const e = new SimulationEngine(s); const r = e.perform('wait 10 minutes');
+      assert(e.state.npcs.maya.memories.some(m => m.private && /manager denied/i.test(m.event)), 'Private memory did not occur.');
+      assert(!/manager denied/i.test(r.narrative), 'Private event leaked into player narration.');
+    });
+
+    check('4 — NPC false belief remains separate from bank truth', () => {
+      const s = createInitialState({ startTime: fixed, seed: 4 });
+      assert(s.player.money.checking === 2180, 'Objective balance is wrong.');
+      assert(s.npcs.maya.beliefs.playerCheckingBalance.value === 4000, 'Maya belief missing.');
+      assert(s.npcs.maya.beliefs.playerCheckingBalance.value !== s.player.money.checking, 'Belief was collapsed into truth.');
+    });
+
+    check('5 — Promise creates durable memory and future event', () => {
+      const e = new SimulationEngine(createInitialState({ startTime: fixed, seed: 5 }));
+      e.state.npcs.maya.current.locationId = 'home';
+      e.perform("I promise Maya I'll help on Saturday.");
+      assert(e.state.npcs.maya.memories.some(m => m.decay === 'none' && /promise/i.test(m.event)), 'Durable promise memory missing.');
+      assert(e.state.scheduledEvents.some(ev => ev.type === 'promise_due' && ev.status === 'queued'), 'Promise event missing.');
+    });
+
+    check('6 — Sleeping through an appointment can miss it', () => {
+      const s = createInitialState({ startTime: fixed, seed: 6 });
+      s.scheduledEvents = [{ id: 'interview', type: 'appointment', title: 'Job interview', triggerAt: addMinutesISO(fixed, 60), deadlineAt: addMinutesISO(fixed, 90), locationId: 'coffee', requiresPresence: true, status: 'queued', visibility: 'known', consequence: 'appointment' }];
+      const e = new SimulationEngine(s); e.perform('sleep for 3 hours');
+      assert(e.state.scheduledEvents[0].status === 'missed', `Expected missed; got ${e.state.scheduledEvents[0].status}.`);
+    });
+
+    check('7 — Implausible persuasion is not auto-success', () => {
+      const s = createInitialState({ startTime: fixed, seed: 7 });
+      s.npcs.maya.current.locationId = 'home';
+      const e = new SimulationEngine(s); const r = e.perform('I convince Maya that I was on the moon last night.');
+      assert(r.results[0].outcome === 'disbelieved', 'Implausible claim was not rejected by social resolution.');
+    });
+
+    check('8 — NPC schedule advances off-screen', () => {
+      const s = createInitialState({ startTime: '2026-09-21T17:30:00', seed: 8 });
+      const e = new SimulationEngine(s); e.perform('wait 2 hours');
+      assert(e.state.npcs.daniel.current.locationId === 'gym', `Daniel should be at gym; got ${e.state.npcs.daniel.current.locationId}.`);
+    });
+
+    check('9 — Full state survives JSON round-trip', () => {
+      const e = new SimulationEngine(createInitialState({ startTime: fixed, seed: 9 }));
+      e.perform('buy coffee for $6.25');
+      const restored = JSON.parse(JSON.stringify(e.state));
+      assert(restored.world.now === e.state.world.now, 'Time mismatch.');
+      assert(restored.player.money.checking === e.state.player.money.checking, 'Money mismatch.');
+      assert(restored.npcs.maya.beliefs.playerCheckingBalance.value === 4000, 'Belief missing.');
+      assert(restored.scheduledEvents.length === e.state.scheduledEvents.length, 'Events mismatch.');
+    });
+
+    check('10 — Quiet waiting does not force drama', () => {
+      const s = createInitialState({ startTime: '2026-09-20T21:00:00', seed: 10 });
+      s.scheduledEvents = s.scheduledEvents.filter(ev => asDate(ev.triggerAt) > asDate(addMinutesISO(s.world.now, 240)));
+      const e = new SimulationEngine(s); const r = e.perform('do nothing for 2 hours');
+      assert(!/murder|threat|emergency|mysterious|kidnap|conspiracy/i.test(r.narrative), 'Forced drama appeared.');
+    });
+
+    return report;
+  }
+
   return {
+    SCHEMA_VERSION,
+    DEFAULT_SAVE_KEY,
     createInitialState,
     SimulationEngine,
     LocalNarrativeProvider,
     ActionInterpreter,
-    SCHEMA_VERSION,
-    DEFAULT_SAVE_KEY,
+    runAcceptanceTests,
+    helpers: { nowISO, addMinutesISO, minutesBetween, formatMoney, relationDescriptor, skillDescriptor, publicNPCView, clone },
   };
 });
+
+</script>
+<script>
+(function () {
+  'use strict';
+
+  const Core = window.AISandboxEngine;
+  const { createInitialState, SimulationEngine, LocalNarrativeProvider, runAcceptanceTests, helpers } = Core;
+  const { formatMoney, relationDescriptor, skillDescriptor, publicNPCView } = helpers;
+
+  class StateStore {
+    constructor(key = Core.DEFAULT_SAVE_KEY) { this.key = key; }
+    exists() { try { return Boolean(localStorage.getItem(this.key)); } catch (_) { return false; } }
+    save(state) {
+      try {
+        localStorage.setItem(this.key, JSON.stringify(state));
+        return { ok: true };
+      } catch (err) { return { ok: false, error: err.message }; }
+    }
+    load() {
+      try {
+        const raw = localStorage.getItem(this.key);
+        if (!raw) return null;
+        const state = JSON.parse(raw);
+        if (!state || state.schemaVersion !== Core.SCHEMA_VERSION) throw new Error('Save schema is not compatible with this build.');
+        return state;
+      } catch (err) { return { __loadError: err.message }; }
+    }
+    delete() { try { localStorage.removeItem(this.key); return true; } catch (_) { return false; } }
+  }
+
+  class SandboxApp {
+    constructor(root) {
+      this.root = root;
+      this.store = new StateStore();
+      this.engine = null;
+      this.drawer = null;
+      this.phoneTab = 'messages';
+      this.phoneThread = null;
+      this.debugTests = null;
+      this.toastTimer = null;
+      this.renderLanding();
+    }
+
+    esc(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    }
+
+    formatGameDate(iso) {
+      const d = new Date(iso);
+      const weekday = d.toLocaleDateString(undefined, { weekday: 'long' }).toUpperCase();
+      const date = d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' }).toUpperCase();
+      const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).toUpperCase();
+      return `${weekday} • ${date} • ${time}`;
+    }
+
+    shortDate(iso) {
+      const d = new Date(iso);
+      return d.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    }
+
+    toast(text) {
+      clearTimeout(this.toastTimer);
+      let el = document.querySelector('.toast');
+      if (!el) { el = document.createElement('div'); el.className = 'toast'; document.body.appendChild(el); }
+      el.textContent = text; el.classList.remove('hidden');
+      this.toastTimer = setTimeout(() => el.classList.add('hidden'), 1800);
+    }
+
+    renderLanding() {
+      const hasSave = this.store.exists();
+      this.root.innerHTML = `
+        <main class="landing">
+          <section class="landing-card">
+            <div class="eyebrow">Persistent simulation</div>
+            <h1>AI SANDBOX</h1>
+            <p>Realistic Life V1. Free-text first, persistent NPCs, time, memory, beliefs, consequences, and local saves.</p>
+            <div class="landing-actions">
+              <button class="primary" id="newGameBtn">NEW GAME</button>
+              <button class="secondary" id="continueBtn" ${hasSave ? '' : 'disabled'}>CONTINUE</button>
+            </div>
+            <div class="meta" style="margin-top:18px">Runs locally in this browser. No login, API key, or paid dependency.</div>
+          </section>
+        </main>`;
+      document.getElementById('newGameBtn').addEventListener('click', () => this.newGame());
+      document.getElementById('continueBtn').addEventListener('click', () => this.continueGame());
+    }
+
+    newGame() {
+      this.engine = new SimulationEngine(createInitialState(), new LocalNarrativeProvider());
+      this.persist('New game saved');
+      this.renderGame();
+    }
+
+    continueGame() {
+      const loaded = this.store.load();
+      if (!loaded || loaded.__loadError) {
+        this.toast(loaded && loaded.__loadError ? loaded.__loadError : 'No save found');
+        return;
+      }
+      this.engine = new SimulationEngine(loaded, new LocalNarrativeProvider());
+      this.renderGame();
+    }
+
+    persist(message) {
+      if (!this.engine) return;
+      const res = this.store.save(this.engine.state);
+      if (message) this.toast(res.ok ? message : `Save failed: ${res.error}`);
+      this.updateHeader();
+    }
+
+    renderGame() {
+      this.root.innerHTML = `
+        <div class="game-shell">
+          <header class="topbar">
+            <div class="time-block">
+              <div class="game-time" id="gameTime"></div>
+              <div class="game-location" id="gameLocation"></div>
+            </div>
+            <div class="top-actions">
+              <span class="save-indicator" id="saveIndicator">Autosaved</span>
+              <button class="icon-btn" id="debugBtn" aria-label="Developer debug panel" title="Debug">DEV</button>
+            </div>
+          </header>
+          <main class="main-stage">
+            <section class="scene-card" aria-live="polite">
+              <div class="scene-label">Scene</div>
+              <div class="scene-text" id="sceneText"></div>
+            </section>
+            <section class="suggestions-section">
+              <div class="section-heading"><h2>Possible actions</h2><span>Suggestions, not limits</span></div>
+              <div class="suggestions" id="suggestions"></div>
+            </section>
+          </main>
+          <div class="composer-wrap">
+            <textarea class="composer" id="composer" rows="1" placeholder="Do or say anything…" aria-label="Do or say anything"></textarea>
+            <button class="do-btn" id="doBtn">DO</button>
+          </div>
+          <nav class="bottom-nav" aria-label="Game sections">
+            <button class="nav-btn" data-tab="character">CHARACTER</button>
+            <button class="nav-btn" data-tab="phone">PHONE</button>
+            <button class="nav-btn" data-tab="map">MAP</button>
+            <button class="nav-btn" data-tab="people">PEOPLE</button>
+            <button class="nav-btn" data-tab="journal">JOURNAL</button>
+          </nav>
+        </div>
+        <section class="drawer hidden" id="drawer" aria-modal="true">
+          <div class="drawer-head"><h2 id="drawerTitle"></h2><button class="close-btn" id="drawerClose" aria-label="Close">✕</button></div>
+          <div class="drawer-body" id="drawerBody"></div>
+        </section>
+        <section class="debug-panel hidden" id="debugPanel">
+          <div class="debug-head"><h2>Developer / Debug</h2><button class="close-btn" id="debugClose">✕</button></div>
+          <div class="debug-actions">
+            <button class="secondary" id="debugSave">Save now</button>
+            <button class="secondary" id="debugTests">Run acceptance tests</button>
+            <button class="secondary" id="debugExport">Export save</button>
+            <button class="secondary" id="debugImport">Import save</button>
+            <button class="danger" id="debugReset">Delete save</button>
+            <input class="hidden" type="file" accept="application/json" id="importFile" />
+          </div>
+          <div class="debug-content" id="debugContent"></div>
+        </section>`;
+
+      document.getElementById('doBtn').addEventListener('click', () => this.submitComposer());
+      document.getElementById('composer').addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.submitComposer(); }
+      });
+      document.querySelectorAll('.nav-btn').forEach(btn => btn.addEventListener('click', () => this.openDrawer(btn.dataset.tab)));
+      document.getElementById('drawerClose').addEventListener('click', () => this.closeDrawer());
+      document.getElementById('debugBtn').addEventListener('click', () => this.openDebug());
+      document.getElementById('debugClose').addEventListener('click', () => this.closeDebug());
+      document.getElementById('debugSave').addEventListener('click', () => this.persist('Saved'));
+      document.getElementById('debugTests').addEventListener('click', () => { this.debugTests = runAcceptanceTests(); this.renderDebug(); });
+      document.getElementById('debugExport').addEventListener('click', () => this.exportSave());
+      document.getElementById('debugImport').addEventListener('click', () => document.getElementById('importFile').click());
+      document.getElementById('importFile').addEventListener('change', e => this.importSave(e.target.files && e.target.files[0]));
+      document.getElementById('debugReset').addEventListener('click', () => this.resetSave());
+      this.renderWorld();
+    }
+
+    updateHeader() {
+      if (!this.engine || !document.getElementById('gameTime')) return;
+      const s = this.engine.state;
+      document.getElementById('gameTime').textContent = this.formatGameDate(s.world.now);
+      document.getElementById('gameLocation').textContent = s.locations[s.world.playerLocationId].name;
+      document.getElementById('saveIndicator').textContent = 'Autosaved';
+    }
+
+    renderWorld() {
+      const s = this.engine.state;
+      this.updateHeader();
+      document.getElementById('sceneText').textContent = s.ui.lastNarrative;
+      const sug = document.getElementById('suggestions');
+      sug.innerHTML = s.ui.suggestions.map((x, i) => `<button class="suggestion" data-suggestion="${i}"><span class="cat">${this.esc(x.category)}</span><span class="txt">${this.esc(x.text)}</span></button>`).join('');
+      sug.querySelectorAll('[data-suggestion]').forEach(btn => btn.addEventListener('click', () => {
+        const item = s.ui.suggestions[Number(btn.dataset.suggestion)];
+        if (item) this.runAction(item.text);
+      }));
+      if (this.drawer) this.renderDrawer();
+    }
+
+    submitComposer() {
+      const input = document.getElementById('composer');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      this.runAction(text);
+    }
+
+    runAction(text) {
+      const btn = document.getElementById('doBtn');
+      if (btn) btn.disabled = true;
+      try {
+        this.engine.perform(text);
+        this.persist();
+        this.renderWorld();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch (err) {
+        console.error(err);
+        this.toast(`Action error: ${err.message}`);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    openDrawer(tab) {
+      this.drawer = tab;
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      document.getElementById('drawer').classList.remove('hidden');
+      this.renderDrawer();
+    }
+
+    closeDrawer() {
+      this.drawer = null;
+      document.getElementById('drawer').classList.add('hidden');
+      document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    }
+
+    renderDrawer() {
+      if (!this.drawer) return;
+      const title = this.drawer.toUpperCase();
+      document.getElementById('drawerTitle').textContent = title;
+      const body = document.getElementById('drawerBody');
+      if (this.drawer === 'character') body.innerHTML = this.characterHTML();
+      if (this.drawer === 'phone') body.innerHTML = this.phoneHTML();
+      if (this.drawer === 'map') body.innerHTML = this.mapHTML();
+      if (this.drawer === 'people') body.innerHTML = this.peopleHTML();
+      if (this.drawer === 'journal') body.innerHTML = this.journalHTML();
+      this.bindDrawerActions();
+    }
+
+    characterHTML() {
+      const s = this.engine.state; const p = s.player;
+      const groups = {
+        Social: ['persuasion','deception','charm','intimidation'], Mental: ['observation','knowledge','creativity','composure'],
+        Physical: ['strength','fitness','coordination','endurance'], Practical: ['driving','technology','repair','firstAid']
+      };
+      return `
+        <div class="stat-grid">
+          <div class="stat"><span class="meta">Condition</span><strong>${this.esc(p.condition.description)}</strong></div>
+          <div class="stat"><span class="meta">Checking</span><strong>${formatMoney(p.money.checking)}</strong></div>
+          <div class="stat"><span class="meta">Cash</span><strong>${formatMoney(p.money.cash)}</strong></div>
+          <div class="stat"><span class="meta">Location</span><strong>${this.esc(s.locations[s.world.playerLocationId].name)}</strong></div>
+        </div>
+        <div class="divider"></div>
+        <div class="card"><h3>Employment</h3><p>${this.esc(p.employment.role)} · ${this.esc(p.employment.employer)}</p><p>${this.esc(p.employment.scheduleSummary)}</p></div>
+        <div class="divider"></div>
+        <h3>Carried</h3><div class="cards">${p.inventory.map(id => `<div class="card">${this.esc((p.possessions.find(x => x.id === id) || {name:id}).name)}</div>`).join('')}</div>
+        <div class="divider"></div>
+        <div class="skill-groups">${Object.entries(groups).map(([name, keys]) => `<div class="card"><h3>${name}</h3>${keys.map(k => `<div class="skill-row"><span>${this.pretty(k)}</span><strong>${skillDescriptor(p.skills[k])}</strong></div>`).join('')}</div>`).join('')}</div>`;
+    }
+
+    phoneHTML() {
+      const tabs = ['messages','bank','calendar','contacts','notes'];
+      return `<div class="subtabs">${tabs.map(t => `<button class="subtab ${this.phoneTab === t ? 'active':''}" data-phone-tab="${t}">${t.toUpperCase()}</button>`).join('')}</div><div id="phoneContent">${this.phoneTabContent()}</div>`;
+    }
+
+    phoneTabContent() {
+      const s = this.engine.state;
+      if (this.phoneTab === 'messages') {
+        if (this.phoneThread) {
+          const npc = s.npcs[this.phoneThread]; const msgs = s.messages[npc.phone.threadId] || [];
+          return `<button class="ghost" data-thread-back>← Threads</button><h3>${this.esc(npc.name)}</h3><div class="message-list">${msgs.map(m => `<div class="bubble ${m.senderId === 'jonathan' ? 'out':'in'}">${this.esc(m.body)}<span class="bubble-time">${this.shortDate(m.at)}</span></div>`).join('')}</div><div class="inline-compose"><input id="threadInput" placeholder="Message ${this.esc(npc.name)}" /><button data-send-thread="${npc.id}">Send</button></div>`;
+        }
+        const rows = Object.values(s.npcs).filter(n => n.phone && n.phone.contactSaved).map(npc => {
+          const msgs = s.messages[npc.phone.threadId] || []; const last = msgs[msgs.length - 1]; const unread = msgs.some(m => m.recipientId === 'jonathan' && !m.read);
+          return `<button class="thread ${unread ? 'unread':''}" data-open-thread="${npc.id}"><div class="row"><strong>${this.esc(npc.name)}</strong>${unread ? '<span class="pill">Unread</span>':''}</div><div class="thread-preview">${last ? this.esc(last.body) : 'No messages'}</div></button>`;
+        }).join('');
+        return `<div class="thread-list">${rows}</div>`;
+      }
+      if (this.phoneTab === 'bank') {
+        const tx = s.bankTransactions.slice().reverse();
+        return `<div class="card"><div class="meta">Checking balance</div><div class="money" style="font-size:28px;margin-top:4px">${formatMoney(s.player.money.checking)}</div><p>Cash on hand: ${formatMoney(s.player.money.cash)}</p></div><div class="divider"></div><div class="cards">${tx.map(t => `<div class="card"><div class="row"><strong>${this.esc(t.description)}</strong><span class="money">${t.direction === 'out' ? '-' : '+'}${formatMoney(t.amount)}</span></div><div class="meta">${this.shortDate(t.at)}</div></div>`).join('')}</div>`;
+      }
+      if (this.phoneTab === 'calendar') {
+        const events = s.scheduledEvents.filter(e => e.visibility === 'known').sort((a,b) => new Date(a.triggerAt)-new Date(b.triggerAt));
+        return `<div class="cards">${events.map(e => `<div class="card"><div class="row"><strong>${this.esc(e.title)}</strong><span class="event-status ${this.esc(e.status)}">${this.esc(e.status)}</span></div><p>${this.shortDate(e.triggerAt)}${e.locationId ? ` · ${this.esc(s.locations[e.locationId].name)}`:''}</p></div>`).join('') || '<p class="meta">No calendar events.</p>'}</div>`;
+      }
+      if (this.phoneTab === 'contacts') {
+        return `<div class="cards">${s.contacts.map(c => `<div class="card"><h3>${this.esc(c.name)}</h3><p>${this.esc(s.npcs[c.npcId].occupation)}</p><button class="secondary" data-open-thread="${c.npcId}" style="margin-top:10px">Message</button></div>`).join('')}</div>`;
+      }
+      if (this.phoneTab === 'notes') {
+        return `<div class="inline-compose"><input id="noteInput" placeholder="Write a note" /><button data-add-note>Add</button></div><div class="divider"></div><div class="cards">${s.journal.playerNotes.slice().reverse().map(n => `<div class="card"><div>${this.esc(n.text)}</div><div class="meta">${this.shortDate(n.at)}</div></div>`).join('') || '<p class="meta">No notes yet.</p>'}</div>`;
+      }
+      return '';
+    }
+
+    mapHTML() {
+      const s = this.engine.state;
+      return `<div class="cards">${s.player.knownLocationIds.map(id => {
+        const loc = s.locations[id]; const here = id === s.world.playerLocationId;
+        return `<div class="card"><div class="row"><div><h3>${this.esc(loc.name)}</h3><span class="meta">${this.esc(loc.type)}</span></div>${here ? '<span class="pill">You are here</span>' : `<button class="secondary" data-go="${id}">Go</button>`}</div><p>${this.esc(loc.description)}</p></div>`;
+      }).join('')}</div>`;
+    }
+
+    peopleHTML() {
+      const s = this.engine.state;
+      return `<div class="cards">${Object.values(s.npcs).map(n => {
+        const view = publicNPCView(n);
+        const lastInteraction = n.memories.filter(m => m.people.includes('jonathan') && !m.secret).slice(-1)[0];
+        return `<div class="card"><div class="row"><div><h3>${this.esc(view.name)}</h3><span class="meta">${this.esc(view.relationship)}</span></div><span class="pill">${this.esc(view.generalTone)}</span></div><p>Works as: ${this.esc(view.occupation)}</p><p>Trust: ${this.esc(view.trust)}</p>${lastInteraction ? `<p>Last remembered interaction: ${this.esc(this.shortDate(lastInteraction.timestamp))}</p>`:''}</div>`;
+      }).join('')}</div><p class="meta" style="margin-top:12px">This view only shows information Jonathan reasonably knows. Exact relationship values, beliefs, locations, goals, and private memories stay hidden outside debug mode.</p>`;
+    }
+
+    journalHTML() {
+      const s = this.engine.state;
+      const active = s.activeSituations.filter(x => x.status === 'active');
+      const done = s.activeSituations.filter(x => x.status !== 'active');
+      return `<h3>Active situations</h3><div class="cards">${active.map(x => `<div class="card"><div class="row"><strong>${this.esc(x.title)}</strong><span class="pill">${this.esc(x.urgency)}</span></div>${x.knownInformation.map(k => `<p>${this.esc(k)}</p>`).join('')}</div>`).join('') || '<p class="meta">Nothing active.</p>'}</div><div class="divider"></div><h3>Recent events</h3><div class="cards">${s.journal.recentMajorEvents.map(x => `<div class="card"><strong>${this.esc(x.text)}</strong><div class="meta">${this.shortDate(x.at)}</div></div>`).join('') || '<p class="meta">No major recent events.</p>'}</div>${done.length ? `<div class="divider"></div><h3>Resolved / expired</h3><div class="cards">${done.map(x => `<div class="card"><strong>${this.esc(x.title)}</strong><div class="meta">${this.esc(x.status)}</div></div>`).join('')}</div>`:''}`;
+    }
+
+    bindDrawerActions() {
+      document.querySelectorAll('[data-phone-tab]').forEach(b => b.addEventListener('click', () => { this.phoneTab = b.dataset.phoneTab; this.phoneThread = null; this.renderDrawer(); }));
+      document.querySelectorAll('[data-open-thread]').forEach(b => b.addEventListener('click', () => {
+        this.drawer = 'phone'; this.phoneTab = 'messages'; this.phoneThread = b.dataset.openThread;
+        const npc = this.engine.state.npcs[this.phoneThread];
+        this.engine.markThreadRead(npc.phone.threadId); this.persist(); this.renderDrawer();
+      }));
+      const back = document.querySelector('[data-thread-back]'); if (back) back.addEventListener('click', () => { this.phoneThread = null; this.renderDrawer(); });
+      document.querySelectorAll('[data-send-thread]').forEach(b => b.addEventListener('click', () => {
+        const input = document.getElementById('threadInput'); const body = input.value.trim(); if (!body) return;
+        const npc = this.engine.state.npcs[b.dataset.sendThread]; this.runAction(`Text ${npc.name}: ${body}`); this.phoneThread = npc.id; this.renderDrawer();
+      }));
+      const threadInput = document.getElementById('threadInput'); if (threadInput) threadInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); document.querySelector('[data-send-thread]').click(); } });
+      document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => {
+        const loc = this.engine.state.locations[b.dataset.go]; this.closeDrawer(); this.runAction(`Drive to ${loc.name}`);
+      }));
+      const addNote = document.querySelector('[data-add-note]'); if (addNote) addNote.addEventListener('click', () => {
+        const input = document.getElementById('noteInput'); const text = input.value.trim(); if (!text) return;
+        this.engine.state.journal.playerNotes.push({ at: this.engine.state.world.now, text }); this.persist(); this.renderDrawer();
+      });
+    }
+
+    pretty(key) { return key.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()); }
+
+    openDebug() { document.getElementById('debugPanel').classList.remove('hidden'); this.renderDebug(); }
+    closeDebug() { document.getElementById('debugPanel').classList.add('hidden'); }
+
+    renderDebug() {
+      const s = this.engine.state; const el = document.getElementById('debugContent'); if (!el) return;
+      const tests = this.debugTests ? `<div class="card"><h3>Acceptance tests</h3>${this.debugTests.map(t => `<div class="skill-row"><span>${this.esc(t.name)}</span><strong class="${t.pass ? 'test-pass':'test-fail'}">${t.pass ? 'PASS':'FAIL'}</strong></div><div class="meta" style="margin-bottom:8px">${this.esc(t.detail)}</div>`).join('')}</div><div class="divider"></div>` : '';
+      const queued = s.scheduledEvents.filter(e => e.status === 'queued' || e.status === 'started').length;
+      el.innerHTML = `${tests}<div class="debug-summary"><div class="stat"><span class="meta">World time</span><strong>${this.esc(s.world.now)}</strong></div><div class="stat"><span class="meta">Turn</span><strong>${s.meta.turn}</strong></div><div class="stat"><span class="meta">Queued events</span><strong>${queued}</strong></div><div class="stat"><span class="meta">Log entries</span><strong>${s.simulationLog.length}</strong></div></div><h3>Complete internal state</h3><pre class="debug-pre">${this.esc(JSON.stringify(s, null, 2))}</pre>`;
+    }
+
+    exportSave() {
+      const blob = new Blob([JSON.stringify(this.engine.state, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob); const a = document.createElement('a');
+      a.href = url; a.download = `ai-sandbox-save-${Date.now()}.json`; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000); this.toast('Save exported');
+    }
+
+    importSave(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const data = JSON.parse(reader.result);
+          if (data.schemaVersion !== Core.SCHEMA_VERSION) throw new Error('Incompatible save version');
+          this.engine = new SimulationEngine(data, new LocalNarrativeProvider()); this.persist('Save imported'); this.closeDebug(); this.renderGame();
+        } catch (err) { this.toast(`Import failed: ${err.message}`); }
+      };
+      reader.readAsText(file);
+    }
+
+    resetSave() {
+      if (!confirm('Delete the local AI Sandbox save? This cannot be undone unless you exported it.')) return;
+      this.store.delete(); this.engine = null; this.renderLanding();
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', () => new SandboxApp(document.getElementById('app')));
+})();
+
 </script>
 </body>
 </html>
