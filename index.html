@@ -166,7 +166,7 @@ button:disabled { opacity: .38; cursor: default; }
   transform: translateX(-50%);
   width: min(980px, 100%);
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   background: rgba(12,16,22,.97);
   border-top: 1px solid var(--line);
   backdrop-filter: blur(14px);
@@ -252,6 +252,15 @@ button:disabled { opacity: .38; cursor: default; }
 .debug-pre { background: #070a0f; border: 1px solid var(--line); border-radius: 12px; padding: 12px; overflow: auto; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
 .test-pass { color: var(--good); }
 .test-fail { color: var(--bad); }
+.feedback-strip { margin-top: 12px; display:flex; flex-wrap:wrap; gap:7px; min-height: 0; }
+.feedback-chip { border:1px solid var(--line); background:rgba(121,168,255,.08); color:var(--text); border-radius:999px; padding:7px 10px; font-size:11px; line-height:1.2; }
+.feedback-chip.warn { background:rgba(255,198,109,.08); }
+.status-strip { display:flex; flex-wrap:wrap; gap:6px; margin: 0 0 12px; }
+.status-chip { border:1px solid var(--line); background:var(--panel); color:var(--muted); border-radius:999px; padding:6px 9px; font-size:11px; }
+.recent-entry { border-left:3px solid rgba(121,168,255,.35); }
+.recent-entry .recent-kind { text-transform:uppercase; letter-spacing:.08em; font-size:10px; color:var(--accent-2); font-weight:800; }
+.payroll-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:10px; }
+
 
 .toast { position: fixed; z-index: 80; left: 50%; top: 18px; transform: translateX(-50%); background: #202c3e; border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 999px; padding: 10px 14px; font-size: 12px; }
 
@@ -339,6 +348,107 @@ button:disabled { opacity: .38; cursor: default; }
     const d = new Date();
     d.setSeconds(0, 0);
     return nowISO(d);
+  }
+
+
+  function dateKey(iso) {
+    const d = iso instanceof Date ? iso : asDate(iso);
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  }
+
+  function localISOForDate(dateLike, hhmm) {
+    const d = dateLike instanceof Date ? new Date(dateLike) : asDate(dateLike);
+    const [h,m] = String(hhmm).split(':').map(Number);
+    d.setHours(h, m, 0, 0);
+    return nowISO(d);
+  }
+
+  function weekOfMonth(dateLike) {
+    const d = dateLike instanceof Date ? dateLike : asDate(dateLike);
+    return Math.floor((d.getDate() - 1) / 7) + 1;
+  }
+
+  function workRuleForDate(dateLike) {
+    const d = dateLike instanceof Date ? dateLike : asDate(dateLike);
+    const dow = d.getDay();
+    // Jonathan's established schedule: Wed 2-6, 1st/3rd Thu 7:40-5, Fri 9:30-5.
+    if (dow === 3) return { start: '14:00', end: '18:00', lunchStart: null, lunchEnd: null, label: 'Wednesday shift' };
+    if (dow === 4 && [1,3].includes(weekOfMonth(d))) return { start: '07:40', end: '17:00', lunchStart: '12:00', lunchEnd: '13:00', label: 'Thursday shift' };
+    if (dow === 5) return { start: '09:30', end: '17:00', lunchStart: '12:00', lunchEnd: '13:00', label: 'Friday shift' };
+    return null;
+  }
+
+  function payDateForWorkDate(iso) {
+    const d = asDate(iso);
+    if (d.getDate() <= 15) { d.setDate(20); }
+    else { d.setMonth(d.getMonth()+1); d.setDate(5); }
+    d.setHours(6,0,0,0);
+    return nowISO(d);
+  }
+
+  function federalAnnualTax2026(taxable) {
+    const brackets = [[12400,.10],[50400,.12],[105700,.22],[201775,.24],[256225,.32],[640600,.35],[Infinity,.37]];
+    let tax=0, prev=0, x=Math.max(0, taxable);
+    for (const [cap, rate] of brackets) { const amt=Math.min(x,cap)-prev; if (amt>0) tax += amt*rate; if (x<=cap) break; prev=cap; }
+    return Math.max(0,tax);
+  }
+
+  function caAnnualWithholding2026(annualGross) {
+    if (annualGross <= 18896) return 0;
+    const x=Math.max(0, annualGross - 5706); // 2026 CA single standard deduction for withholding.
+    const rows=[
+      [11079,.011,0,0],[26264,.022,11079,121.87],[41452,.044,26264,455.94],[57542,.066,41452,1124.21],
+      [72724,.088,57542,2186.15],[371479,.1023,72724,3522.17],[445771,.1133,371479,34084.81],
+      [742953,.1243,445771,42502.09],[1000000,.1353,742953,79441.81],[Infinity,.1463,1000000,114220.27]
+    ];
+    for (const [cap,rate,floor,base] of rows) if (x<=cap) return Math.max(0, base + rate*(x-floor));
+    return 0;
+  }
+
+  function estimateSemimonthlyWithholding(gross) {
+    const g=Math.max(0,Number(gross)||0);
+    const annualized=g*24;
+    const fedTaxable=Math.max(0, annualized-16100);
+    const federal=Math.min(g, federalAnnualTax2026(fedTaxable)/24);
+    const caPIT=Math.min(g, caAnnualWithholding2026(annualized)/24);
+    const socialSecurity=g*0.062;
+    const medicare=g*0.0145;
+    const caSDI=g*0.013;
+    const total=federal+caPIT+socialSecurity+medicare+caSDI;
+    return { federal, caPIT, socialSecurity, medicare, caSDI, localLA:0, total, net:Math.max(0,g-total) };
+  }
+
+  function cannabisPriceForGrams(grams) {
+    const g=Number(grams)||0;
+    const tiers=[[1,8.54],[3.5,21.67],[7,31.35],[14,44.15],[28,50.49]];
+    const exact=tiers.find(x=>Math.abs(x[0]-g)<0.01);
+    if (exact) return exact[1];
+    return Math.round(g*8.54*100)/100;
+  }
+
+  function ensureMilestone2State(state) {
+    state.activityFeed = Array.isArray(state.activityFeed) ? state.activityFeed : [];
+    state.ui = state.ui || {};
+    state.ui.lastFeedback = Array.isArray(state.ui.lastFeedback) ? state.ui.lastFeedback : [];
+    state.player.condition.statusEffects = Array.isArray(state.player.condition.statusEffects) ? state.player.condition.statusEffects : [];
+    state.player.employment.hourlyRate = 27;
+    state.player.employment.scheduleSummary = 'Wed 2:00–6:00 PM; first/third Thu 7:40 AM–5:00 PM; Fri 9:30 AM–5:00 PM. Lunch 12:00–1:00 PM on shifts that span lunch.';
+    state.player.employment.payroll = state.player.employment.payroll || { pendingEntries: [], paychecks: [], currentShiftSession: null, taxProfile: { filingStatus:'single', federalStandardDeduction:16100, caStandardDeduction:5706, caLowIncomeExemption:18896, note:'Estimated 2026 withholding; W-4/DE 4 details can change actual withholding.' } };
+    state.workplace = state.workplace || { dateKey:null, tasks:[] };
+    state.player.consumables = state.player.consumables || {};
+    if (!state.player.consumables.cannabisFlower) state.player.consumables.cannabisFlower = { id:'cannabis_flower', name:'Cannabis flower', unit:'g', quantity:3.5, lowThreshold:0.75, priceBaseline:{ asOf:'2026-08', market:'California legal retail', gram:8.54, eighth:21.67, quarter:31.35, half:44.15, ounce:50.49 }, lastPurchaseAt:null, lastDealerCheckInAt:null };
+    if (!state.npcs.eli) state.npcs.eli = { id:'eli', name:'Eli', age:null, occupation:'Cannabis contact', homeLocationId:'unknown', personality:{traits:['casual','low-pressure','businesslike'],temperament:'easygoing',conversationalStyle:'brief',preferences:['simple plans'],dislikes:['being strung along']}, current:{locationId:'unknown',activity:'going about the day',mood:'neutral',money:null,immediateGoal:'handle regular customers',longTermGoals:[]}, relationship:{label:'Cannabis Contact',trust:48,affection:20,respect:50,attraction:0,fear:0,resentment:0,familiarity:45}, knowledge:{factsKnown:['Jonathan sometimes buys cannabis'],suspicions:[],falseBeliefs:[],secretsKnown:[],unknownTopics:['Jonathan exact cannabis inventory']}, beliefs:{}, memories:[], plans:{scheduleType:'untracked',upcomingCommitments:[],personalGoals:[],unresolvedProblems:[]}, phone:{contactSaved:true,threadId:'thread_eli'} };
+    if (!state.contacts.some(c=>c.npcId==='eli')) state.contacts.push({npcId:'eli',name:'Eli',phone:'saved'});
+    state.messages.thread_eli = state.messages.thread_eli || [];
+    // Remove obsolete generated work appointments and ensure the next 75 days of actual shifts exist.
+    state.scheduledEvents = (state.scheduledEvents || []).filter(e => e.id !== 'evt_work_1' && !(e.type==='appointment' && e.title==='Work shift'));
+    const base=dayStart(state.world.now);
+    for (let i=-2;i<=75;i++) {
+      const d=new Date(base); d.setDate(base.getDate()+i); const rule=workRuleForDate(d); if(!rule) continue;
+      const key=dateKey(d); const id=`work_${key}`; if(state.scheduledEvents.some(e=>e.id===id)) continue;
+      state.scheduledEvents.push({ id, type:'work_shift', title:'Work shift', triggerAt:localISOForDate(d,rule.start), deadlineAt:localISOForDate(d,rule.end), locationId:'work', requiresPresence:true, status:'queued', visibility:'known', rule, workedMinutes:0, grossEarned:0 });
+    }
+    return state;
   }
 
   function createInitialState(options = {}) {
@@ -497,6 +607,7 @@ button:disabled { opacity: .38; cursor: default; }
       },
     };
 
+    ensureMilestone2State(state);
     state.simulationLog.push({ at: start, type: 'system', text: 'New realistic-life world initialized.' });
     return state;
   }
@@ -547,8 +658,13 @@ button:disabled { opacity: .38; cursor: default; }
         suggestions.push({ category: 'Leave', text: 'Drive to Juniper Coffee.' });
         suggestions.push({ category: 'Avoid', text: 'Do nothing for an hour and let the evening pass.' });
       } else if (locId === 'work') {
-        suggestions.push({ category: 'Act', text: 'Start working at the front desk.' });
+        const shift=(state.scheduledEvents||[]).find(e=>e.type==='work_shift'&&dateKey(e.triggerAt)===dateKey(state.world.now));
+        const now=asDate(state.world.now), rule=shift&&shift.rule; const ls=rule&&rule.lunchStart?asDate(localISOForDate(now,rule.lunchStart)):null, le=rule&&rule.lunchEnd?asDate(localISOForDate(now,rule.lunchEnd)):null;
+        if(shift){ if(ls&&now<ls) suggestions.push({category:'Work',text:'Work through shift until lunch.'}); else if(ls&&le&&now>=ls&&now<le) suggestions.push({category:'Break',text:'Take lunch.'}); else if(now<asDate(shift.deadlineAt)) suggestions.push({category:'Work',text:'Finish shift.'}); }
         suggestions.push({ category: 'Observe', text: 'Check what still needs to be handled here.' });
+        suggestions.push({ category: 'Work', text: 'Handle an appointment confirmation.' });
+        suggestions.push({ category: 'Work', text: 'Work on an insurance verification.' });
+        suggestions.push({ category: 'Work', text: 'Return a patient voicemail.' });
         suggestions.push({ category: 'Phone', text: 'Check my calendar.' });
         suggestions.push({ category: 'Leave', text: 'Drive home.' });
       } else {
@@ -584,6 +700,14 @@ button:disabled { opacity: .38; cursor: default; }
       const text = String(raw || '').trim();
       if (!text) return [];
       const normalized = text.replace(/[’]/g, "'");
+
+      // A phone text is one action even when the message itself contains commas,
+      // "then", or "and then". Splitting those phrases here used to truncate
+      // messages entered through the Phone UI.
+      if (/^(?:text|message)\b/i.test(normalized)) {
+        return [this.classify(normalized, state)];
+      }
+
       const clauses = normalized
         .split(/\s*,\s*|\s+and then\s+|\s+then\s+/i)
         .map(s => s.trim().replace(/^and\s+/i, ''))
@@ -604,7 +728,14 @@ button:disabled { opacity: .38; cursor: default; }
       if (/\bwait\b|\bdo nothing\b|\bpass the time\b/.test(lower)) return this.parseWait(clause);
       if (/\bbuy\b|\bpay\b|\bspend\b/.test(lower)) return this.parsePurchase(clause);
       if (/\beat\b|\bcook\b|\bmake .* (food|dinner|lunch|breakfast|sandwich|meal)\b/.test(lower)) return { type: 'eat', raw: clause };
-      if (/\bwork\b|\bstart working\b/.test(lower)) return { type: 'work', raw: clause, minutes: this.parseDuration(clause) || 60 };
+      if (/work through.*lunch|work.*until lunch|until lunch/.test(lower)) return { type:'work', raw:clause, mode:'until_lunch' };
+      if (/finish (?:the )?shift|work.*until.*(?:5|five)/.test(lower)) return { type:'work', raw:clause, mode:'finish_shift' };
+      if (/take (?:my )?lunch|lunch break|go to lunch/.test(lower)) return { type:'work_lunch', raw:clause };
+      if (/appointment confirmation|confirm appointments?/.test(lower)) return { type:'work_task', raw:clause, taskId:'confirmations' };
+      if (/insurance verification|verify insurance/.test(lower)) return { type:'work_task', raw:clause, taskId:'insurance' };
+      if (/voicemail|return .*call/.test(lower)) return { type:'work_task', raw:clause, taskId:'voicemail' };
+      if (/waiting room/.test(lower) && !/observe|look|check/.test(lower)) return { type:'work_task', raw:clause, taskId:'waiting' };
+      if (/\bwork\b|\bstart working\b/.test(lower)) return { type: 'work', raw: clause, mode:'auto', minutes: this.parseDuration(clause) || null };
       if (/\bpromise\b/.test(lower)) return this.parsePromise(clause, state);
       if (/\blook\b|\bwatch\b|\bobserve\b|\binspect\b|\bcheck\b/.test(lower)) return { type: 'observe', raw: clause };
       if (/\b(tell|ask|say|talk|convince|persuade|lie)\b/.test(lower)) return this.parseTalk(clause, state);
@@ -686,6 +817,12 @@ button:disabled { opacity: .38; cursor: default; }
       const m = clause.match(/\$\s*(\d+(?:\.\d{1,2})?)/);
       let amount = m ? Number(m[1]) : null;
       const lower = clause.toLowerCase();
+      if (/\b(weed|cannabis|flower|eighth|quarter|half ounce|ounce)\b/.test(lower)) {
+        let grams=1;
+        if(/eighth/.test(lower)) grams=3.5; else if(/quarter/.test(lower)) grams=7; else if(/half ounce/.test(lower)) grams=14; else if(/\b(ounce|oz)\b/.test(lower)) grams=28;
+        const gm=lower.match(/(\d+(?:\.\d+)?)\s*(?:g|gram)/); if(gm) grams=Number(gm[1]);
+        return {type:'cannabis_purchase',raw:clause,grams,amount:amount||cannabisPriceForGrams(grams),useCash:/\bcash\b/.test(lower)};
+      }
       if (!amount && lower.includes('coffee')) amount = 6.25;
       if (!amount && (lower.includes('grocer') || lower.includes('food'))) amount = 32;
       return { type: 'purchase', raw: clause, amount, useCash: /\bcash\b/.test(lower) };
@@ -713,12 +850,15 @@ button:disabled { opacity: .38; cursor: default; }
 
   class SimulationEngine {
     constructor(state, provider) {
-      this.state = state || createInitialState();
+      this.state = ensureMilestone2State(state || createInitialState());
       this.provider = provider || new LocalNarrativeProvider();
       this.interpreter = new ActionInterpreter();
       this.state.dialogue = this.state.dialogue || { version: 2, threads: {} };
       this.state.dialogue.version = 2;
-      this.state.meta.provider = 'hybrid-context-v6-owner-lock-diagnostics';
+      this.state.player.condition.statusEffects = Array.isArray(this.state.player.condition.statusEffects) ? this.state.player.condition.statusEffects : [];
+      this.state.player.condition.injuryNote = this.state.player.condition.injuryNote || null;
+      this.state.ui.lastSimulationNotice = this.state.ui.lastSimulationNotice || '';
+      this.state.meta.provider = 'milestone2-hybrid-v8';
       if (!this.state.ui.lastNarrative) {
         this.state.ui.lastNarrative = this.provider.generateScene(this.state, null);
         this.state.ui.suggestions = this.provider.generateSuggestions(this.state);
@@ -728,6 +868,88 @@ button:disabled { opacity: .38; cursor: default; }
     log(type, text, hidden = false) {
       this.state.simulationLog.push({ at: this.state.world.now, type, text, hidden });
       if (this.state.simulationLog.length > 500) this.state.simulationLog.splice(0, this.state.simulationLog.length - 500);
+    }
+
+    addActivity(kind, text, options = {}) {
+      const s=this.state; s.activityFeed=Array.isArray(s.activityFeed)?s.activityFeed:[];
+      const entry={ id:makeId('feed',s), at:s.world.now, kind:String(kind||'event'), text:String(text||''), importance:options.importance||'normal' };
+      s.activityFeed.unshift(entry); if(s.activityFeed.length>250) s.activityFeed.length=250;
+      return entry;
+    }
+
+    clearFeedback() { this.state.ui.lastFeedback=[]; }
+    feedback(text, tone='normal') {
+      if(!text) return; const s=this.state; s.ui.lastFeedback=Array.isArray(s.ui.lastFeedback)?s.ui.lastFeedback:[];
+      const value=String(text); if(!s.ui.lastFeedback.some(x=>(typeof x==='string'?x:x.text)===value)) s.ui.lastFeedback.push({text:value,tone});
+      if(s.ui.lastFeedback.length>8) s.ui.lastFeedback=s.ui.lastFeedback.slice(-8);
+    }
+
+    relationshipCue(npc, changes) {
+      if (!npc || !changes) return null;
+      if ((changes.resentment||0)>0 || (changes.respect||0)<0) return `${npc.name} seemed less comfortable with that.`;
+      if ((changes.fear||0)>0) return `${npc.name} seemed uneasy.`;
+      if ((changes.attraction||0)>0 && (changes.affection||0)>0) return `${npc.name} seemed receptive to the tone.`;
+      if ((changes.attraction||0)>0) return `${npc.name} seemed to notice the flirtatious tone.`;
+      if ((changes.trust||0)>0 || (changes.affection||0)>0) return `${npc.name} seemed a little warmer toward you.`;
+      if ((changes.trust||0)<0 || (changes.affection||0)<0) return `${npc.name} seemed a little more distant.`;
+      return null;
+    }
+
+    todaysWorkShift() {
+      const key=dateKey(this.state.world.now);
+      return (this.state.scheduledEvents||[]).find(e=>e.type==='work_shift' && dateKey(e.triggerAt)===key && !['cancelled'].includes(e.status)) || null;
+    }
+
+    ensureWorkplaceTasks() {
+      const s=this.state, key=dateKey(s.world.now);
+      if(s.workplace.dateKey===key && Array.isArray(s.workplace.tasks) && s.workplace.tasks.length) return s.workplace.tasks;
+      const d=asDate(s.world.now); const seed=d.getDate()+d.getMonth()*31;
+      s.workplace={ dateKey:key, tasks:[
+        {id:'confirmations',label:'Appointment confirmations',remaining:2+(seed%3),minutesEach:7},
+        {id:'insurance',label:'Insurance verification',remaining:1+(seed%2),minutesEach:14},
+        {id:'voicemail',label:'Patient voicemail',remaining:1+(seed%3===0?1:0),minutesEach:8},
+        {id:'waiting',label:'Waiting-room follow-up',remaining:seed%2,minutesEach:5}
+      ]};
+      return s.workplace.tasks;
+    }
+
+    workTaskSummary() {
+      const tasks=this.ensureWorkplaceTasks().filter(t=>t.remaining>0);
+      if(!tasks.length) return 'The front desk is caught up for the moment.';
+      return tasks.map(t=>`${t.remaining} ${t.label.toLowerCase()}${t.remaining===1?'':' items'}`).join(', ')+'.';
+    }
+
+    recordWorkMinutes(minutes, shift, description='Work shift') {
+      const s=this.state, payroll=s.player.employment.payroll; const mins=Math.max(0,Math.round(minutes)); if(!mins) return {minutes:0,gross:0};
+      const gross=Math.round((mins/60)*s.player.employment.hourlyRate*100)/100; const payDate=payDateForWorkDate(s.world.now);
+      const entry={id:makeId('pay',s),workDate:dateKey(s.world.now),minutes:mins,gross,description,payDate,status:'pending'}; payroll.pendingEntries.push(entry);
+      if(shift){ shift.workedMinutes=(shift.workedMinutes||0)+mins; shift.grossEarned=Math.round(((shift.grossEarned||0)+gross)*100)/100; }
+      const payId=`payroll_${dateKey(payDate)}`; if(!s.scheduledEvents.some(e=>e.id===payId)) s.scheduledEvents.push({id:payId,type:'payroll',title:'Payroll deposit',triggerAt:payDate,deadlineAt:null,status:'queued',visibility:'known',requiresPresence:false});
+      this.feedback(`${(mins/60).toFixed(mins%60?2:0)} paid hr logged`); this.feedback(`${formatMoney(gross)} pending payroll`);
+      this.addActivity('work', `${mins} paid minutes worked · ${formatMoney(gross)} added to pending payroll.`);
+      return {minutes:mins,gross};
+    }
+
+    processPayrollEvent(event) {
+      const s=this.state, payroll=s.player.employment.payroll; const key=dateKey(event.triggerAt);
+      const entries=payroll.pendingEntries.filter(x=>x.status==='pending' && dateKey(x.payDate)===key);
+      if(!entries.length){ event.status='completed'; return null; }
+      const minutes=entries.reduce((a,x)=>a+x.minutes,0), gross=Math.round(entries.reduce((a,x)=>a+x.gross,0)*100)/100;
+      const tax=estimateSemimonthlyWithholding(gross); const net=Math.round(tax.net*100)/100;
+      entries.forEach(x=>x.status='paid');
+      const paycheck={id:makeId('check',s),payDate:key,minutes,gross,net,tax:{federal:tax.federal,caPIT:tax.caPIT,socialSecurity:tax.socialSecurity,medicare:tax.medicare,caSDI:tax.caSDI,localLA:0,total:tax.total}}; payroll.paychecks.unshift(paycheck);
+      s.player.money.checking=Math.round((s.player.money.checking+net)*100)/100;
+      s.bankTransactions.push({id:makeId('tx',s),at:event.triggerAt,amount:net,direction:'in',description:`Payroll deposit — ${(minutes/60).toFixed(2)} hr · ${formatMoney(gross)} gross`,balanceAfter:s.player.money.checking});
+      event.status='completed'; this.feedback(`${formatMoney(net)} payroll deposited`); this.addActivity('payroll', `Payday: ${formatMoney(net)} net deposited from ${(minutes/60).toFixed(2)} hours (${formatMoney(gross)} gross).`,{importance:'high'});
+      return {type:'payroll',text:`Payroll hits your account: ${formatMoney(net)} net from ${(minutes/60).toFixed(2)} hours worked (${formatMoney(gross)} gross).`};
+    }
+
+    maybeScheduleDealerCheckIn() {
+      const s=this.state, c=s.player.consumables && s.player.consumables.cannabisFlower; if(!c || c.quantity>c.lowThreshold) return;
+      if((s.scheduledEvents||[]).some(e=>e.type==='dealer_checkin' && e.status==='queued')) return;
+      const last=c.lastDealerCheckInAt?asDate(c.lastDealerCheckInAt):null; if(last && (asDate(s.world.now)-last)<72*3600000) return;
+      // The simulation notices low stock, but Eli's message is framed as a cadence-based check-in, not omniscient inventory knowledge.
+      if(seededRandom(s)<0.72){ const delay=45+Math.floor(seededRandom(s)*240); s.scheduledEvents.push({id:makeId('evt',s),type:'dealer_checkin',title:'Eli checks in',triggerAt:addMinutesISO(s.world.now,delay),deadlineAt:null,status:'queued',visibility:'hidden',npcId:'eli'}); }
     }
 
     interpretAction(raw) { return this.interpreter.interpret(raw, this.state); }
@@ -742,12 +964,26 @@ button:disabled { opacity: .38; cursor: default; }
       if (action.type === 'travel') {
         if (!action.destinationId || !s.locations[action.destinationId]) return { ok: false, reason: 'That destination is not specific enough or is not currently known.' };
         if (action.mode === 'drive' && !s.player.possessions.some(p => p.id === 'car')) return { ok: false, reason: 'You do not have access to a car.' };
+        if (action.mode === 'drive' && this.hasDrivingImpairment()) return { ok: false, reason: 'You are currently impaired enough that driving would be unsafe. The simulation will not treat that drive as a normal successful action.' };
       }
       if (action.type === 'grab') {
         if (!action.itemId) return { ok: false, reason: 'It is not clear what object you are trying to take.' };
         const item = s.player.possessions.find(p => p.id === action.itemId);
         if (!item) return { ok: false, reason: 'You do not appear to own that item.' };
         if (item.locationId !== s.world.playerLocationId && !s.player.inventory.includes(item.id)) return { ok: false, reason: `${item.name} is not here.` };
+      }
+      if (['work','work_lunch','work_task'].includes(action.type)) {
+        if (s.world.playerLocationId !== s.player.employment.locationId) return { ok:false, reason:'You need to be at the office to do that.' };
+        const shift=this.todaysWorkShift(); if(!shift) return {ok:false,reason:'You are not scheduled to work today.'};
+        const now=asDate(s.world.now), start=asDate(shift.triggerAt), end=asDate(shift.deadlineAt), rule=shift.rule||{};
+        const ls=rule.lunchStart?asDate(localISOForDate(now,rule.lunchStart)):null, le=rule.lunchEnd?asDate(localISOForDate(now,rule.lunchEnd)):null;
+        if(action.type!=='work_lunch' && now<start) return {ok:false,reason:`Your scheduled shift has not started yet.`};
+        if(action.type!=='work_lunch' && now>=end) return {ok:false,reason:'Today’s scheduled shift is already over.'};
+        if(action.type==='work_task' && ls && le && now>=ls && now<le) return {ok:false,reason:'You are on the scheduled lunch break right now.'};
+      }
+      if (action.type === 'cannabis_purchase') {
+        if (!action.amount || action.amount<=0) return {ok:false,reason:'The cannabis purchase needs a valid price.'};
+        if (s.player.money.checking+s.player.money.cash<action.amount) return {ok:false,reason:`You do not have enough available money for ${formatMoney(action.amount)}.`};
       }
       if (action.type === 'purchase') {
         if (!action.amount || action.amount <= 0) return { ok: false, reason: 'The purchase needs a plausible price before it can be resolved.' };
@@ -762,12 +998,12 @@ button:disabled { opacity: .38; cursor: default; }
           if (!present.length) return { ok: false, reason: 'There is no known person here to direct that conversation to.' };
         }
       }
-      if (action.type === 'work' && s.world.playerLocationId !== s.player.employment.locationId) return { ok: false, reason: 'You need to be at your workplace to work this shift.' };
       return { ok: true };
     }
 
     perform(raw) {
       const state = this.state;
+      this.clearFeedback();
       state.meta.turn += 1;
       this.log('player', `Player input: ${raw}`);
       const actions = this.interpretAction(raw);
@@ -783,12 +1019,13 @@ button:disabled { opacity: .38; cursor: default; }
           const validation = this.validateAction(action);
           if (!validation.ok) {
             this.log('validation', `Rejected ${action.type}: ${validation.reason}`);
-            results.push({ ok: false, type: action.type, narrative: validation.reason, minutes: 1 });
+            results.push({ ok: false, type: action.type, narrative: validation.reason, minutes: 1 }); this.addActivity('blocked', validation.reason);
             visibleEvents.push(...this.advanceTime(1).visibleEvents);
             continue;
           }
           const resolved = this.resolveAction(action);
           results.push(resolved);
+          if (resolved && resolved.narrative) this.addActivity(resolved.ok===false?'blocked':'action', String(resolved.narrative).slice(0,260));
           if (resolved.minutes > 0) visibleEvents.push(...this.advanceTime(resolved.minutes).visibleEvents);
         }
       }
@@ -815,6 +1052,9 @@ button:disabled { opacity: .38; cursor: default; }
         case 'sleep': return this.resolveSleep(action);
         case 'wait': return { ok: true, type: action.type, minutes: action.minutes, narrative: action.minutes >= 120 ? 'You let a few quiet hours pass.' : 'You let some time pass without doing much.' };
         case 'purchase': return this.resolvePurchase(action);
+        case 'cannabis_purchase': return this.resolveCannabisPurchase(action);
+        case 'work_lunch': return this.resolveWorkLunch(action);
+        case 'work_task': return this.resolveWorkTask(action);
         case 'eat': s.player.condition.hunger = Math.max(5, s.player.condition.hunger - 42); return { ok: true, type: action.type, minutes: 25, narrative: 'You make something simple to eat and finish the meal.' };
         case 'work': return this.resolveWork(action);
         case 'promise': return this.resolvePromise(action);
@@ -1117,13 +1357,60 @@ button:disabled { opacity: .38; cursor: default; }
     }
 
     resolveWork(action) {
-      const s = this.state; const minutes = Math.max(15, action.minutes || 60);
-      const pay = Math.round((s.player.employment.hourlyRate * minutes / 60) * 100) / 100;
-      s.player.money.checking += pay;
-      s.bankTransactions.push({ id: makeId('tx', s), at: addMinutesISO(s.world.now, minutes), amount: pay, direction: 'in', description: 'Work earnings', balanceAfter: s.player.money.checking });
-      s.player.condition.energy = Math.max(0, s.player.condition.energy - Math.round(minutes / 45));
-      this.log('employment', `Worked ${minutes} minutes; ${formatMoney(pay)} accrued.`);
-      return { ok: true, type: action.type, minutes, narrative: `You work for about ${Math.round(minutes / 15) * 15} minutes. The time is routine rather than eventful.` };
+      const s=this.state, shift=this.todaysWorkShift();
+      if(!shift) return {ok:false,type:'work',minutes:1,narrative:'You are not scheduled to work today, so there is no shift to clock into.'};
+      const now=asDate(s.world.now), start=asDate(shift.triggerAt), end=asDate(shift.deadlineAt);
+      const rule=shift.rule||workRuleForDate(now)||{};
+      const lunchStart=rule.lunchStart?asDate(localISOForDate(now,rule.lunchStart)):null;
+      const lunchEnd=rule.lunchEnd?asDate(localISOForDate(now,rule.lunchEnd)):null;
+      if(now<start) return {ok:false,type:'work',minutes:1,narrative:`Your scheduled shift starts at ${start.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}. You cannot start paid work yet.`};
+      if(now>=end) return {ok:false,type:'work',minutes:1,narrative:'Today’s scheduled shift is already over.'};
+      if(lunchStart && lunchEnd && now>=lunchStart && now<lunchEnd) return {ok:false,type:'work',minutes:1,narrative:'You are in the scheduled lunch window. Take lunch, then resume at 1:00 PM.'};
+      let target=end;
+      if(action.mode==='until_lunch') {
+        if(!lunchStart || now>=lunchStart) return {ok:false,type:'work',minutes:1,narrative:'There is no remaining pre-lunch work block to complete.'};
+        target=lunchStart;
+      } else if(action.mode==='finish_shift') {
+        if(lunchEnd && now<lunchEnd) return {ok:false,type:'work',minutes:1,narrative:'The afternoon shift resumes at 1:00 PM. Finish lunch first.'};
+        target=end;
+      } else if(lunchStart && now<lunchStart) target=lunchStart;
+      const minutes=Math.max(1,Math.round((target-now)/60000));
+      const earned=this.recordWorkMinutes(minutes,shift,action.mode==='until_lunch'?'Morning shift':'Work shift');
+      shift.status=target>=end?'completed':'started';
+      const totalGross=Math.round((shift.grossEarned||0)*100)/100, totalMin=shift.workedMinutes||0;
+      let narrative=`You work steadily until ${target.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}. ${Math.floor(minutes/60)}h ${minutes%60}m of paid time adds ${formatMoney(earned.gross)} to pending payroll.`;
+      if(target>=end) narrative += ` The shift is complete: ${(totalMin/60).toFixed(2)} paid hours and ${formatMoney(totalGross)} gross earned today.`;
+      else narrative += ' Lunch is next.';
+      this.feedback(target>=end?'Shift complete':'Morning work block complete');
+      if(target>=end) this.addActivity('work',`Shift complete · ${(totalMin/60).toFixed(2)} hr · ${formatMoney(totalGross)} gross queued for payroll.`,{importance:'high'});
+      return {ok:true,type:'work',minutes,narrative};
+    }
+
+    resolveWorkLunch(action) {
+      const s=this.state, shift=this.todaysWorkShift(); if(!shift) return {ok:false,type:'work_lunch',minutes:1,narrative:'You are not scheduled to work today.'};
+      const now=asDate(s.world.now), rule=shift.rule||{}, ls=rule.lunchStart?asDate(localISOForDate(now,rule.lunchStart)):null, le=rule.lunchEnd?asDate(localISOForDate(now,rule.lunchEnd)):null;
+      if(!ls||!le) return {ok:false,type:'work_lunch',minutes:1,narrative:'This shift does not have a scheduled lunch block.'};
+      if(now<ls) return {ok:false,type:'work_lunch',minutes:1,narrative:'Lunch starts at noon.'};
+      if(now>=le) return {ok:false,type:'work_lunch',minutes:1,narrative:'The lunch period is already over.'};
+      const minutes=Math.max(1,Math.round((le-now)/60000)); this.feedback('Lunch break'); this.addActivity('work','Unpaid lunch break taken.');
+      return {ok:true,type:'work_lunch',minutes,narrative:'You take your lunch break. The hour is unpaid, and the afternoon shift resumes at 1:00 PM.'};
+    }
+
+    resolveWorkTask(action) {
+      const task=this.ensureWorkplaceTasks().find(t=>t.id===action.taskId); if(!task) return {ok:false,type:'work_task',minutes:1,narrative:'That work task is not currently tracked.'};
+      if(task.remaining<=0) return {ok:true,type:'work_task',minutes:2,narrative:`The ${task.label.toLowerCase()} are already caught up.`};
+      const shift=this.todaysWorkShift(); const now=asDate(this.state.world.now), end=asDate(shift.deadlineAt); const minutes=Math.min(task.minutesEach,Math.max(1,Math.round((end-now)/60000)));
+      task.remaining-=1; const earned=this.recordWorkMinutes(minutes,shift,task.label); this.feedback(`${task.label}: ${task.remaining} remaining`); this.addActivity('work',`${task.label} handled · ${task.remaining} remaining.`);
+      return {ok:true,type:'work_task',minutes,narrative:`You handle one ${task.label.toLowerCase()} item. ${task.remaining?`${task.remaining} remain.`:'That category is caught up.'} The time counts as paid work.`};
+    }
+
+    resolveCannabisPurchase(action) {
+      const s=this.state, c=s.player.consumables.cannabisFlower; const amount=Math.round(Number(action.amount)*100)/100;
+      let source='checking'; if(action.useCash && s.player.money.cash>=amount){s.player.money.cash=Math.round((s.player.money.cash-amount)*100)/100;source='cash';} else {s.player.money.checking=Math.round((s.player.money.checking-amount)*100)/100;}
+      c.quantity=Math.round((Number(c.quantity||0)+Number(action.grams||0))*100)/100; c.lastPurchaseAt=s.world.now;
+      if(source==='checking') s.bankTransactions.push({id:makeId('tx',s),at:s.world.now,amount,direction:'out',description:`Cannabis flower ${action.grams}g`,balanceAfter:s.player.money.checking});
+      this.feedback(`Cannabis: ${c.quantity.toFixed(2)} g on hand`); this.feedback(`${formatMoney(amount)} spent`); this.addActivity('inventory',`Bought ${action.grams}g cannabis flower for ${formatMoney(amount)}.`);
+      return {ok:true,type:'cannabis_purchase',minutes:12,narrative:`You buy ${action.grams}g of cannabis flower for ${formatMoney(amount)}. You now have about ${c.quantity.toFixed(2)}g on hand.`};
     }
 
     resolvePromise(action) {
@@ -1141,6 +1428,10 @@ button:disabled { opacity: .38; cursor: default; }
 
     resolveObserve(action) {
       const s = this.state; const loc = s.locations[s.world.playerLocationId]; const lower = action.raw.toLowerCase();
+      if (s.world.playerLocationId === 'work' && /still needs|needs doing|what.*handle|front desk|workload/.test(lower)) {
+        const summary=this.workTaskSummary(); this.feedback('Workload checked'); this.addActivity('observe',`Front desk check: ${summary}`);
+        return {ok:true,type:action.type,minutes:3,narrative:`You check the front desk workload. ${summary}`};
+      }
       if (lower.includes('phone') || lower.includes('message')) {
         Object.keys(s.messages).forEach(t => this.markThreadRead(t));
         return { ok: true, type: action.type, minutes: 2, narrative: 'You check your phone and read the waiting messages.' };
@@ -1180,7 +1471,228 @@ button:disabled { opacity: .38; cursor: default; }
       if (/jump .*roof|moving truck/.test(lower)) {
         return { ok: false, type: action.type, minutes: 1, narrative: 'That would be extremely dangerous under ordinary conditions. You do not have a safe, plausible way to carry it out as stated.' };
       }
-      return { ok: true, type: action.type, minutes: 4, narrative: `You try to ${action.raw.replace(/^i\s+/i, '')}. Nothing about the attempt creates facts that were not already supported by the situation.` };
+      return {
+        ok: true, type: action.type, minutes: 4,
+        narrative: `You try to ${action.raw.replace(/^i\s+/i, '')}.\n\nSimulation note: this free-form action did not change tracked state because the AI action interpreter was unavailable or this feature is not implemented in the local fallback.`
+      };
+    }
+
+    activeStatusEffects() {
+      const c = this.state.player.condition;
+      c.statusEffects = Array.isArray(c.statusEffects) ? c.statusEffects : [];
+      return c.statusEffects.filter(x => !x.expiresAt || asDate(x.expiresAt) > asDate(this.state.world.now));
+    }
+
+    hasDrivingImpairment() {
+      return this.activeStatusEffects().some(x => x.impairsDriving === true || (x.modifiers && Number(x.modifiers.driving || 0) <= -10));
+    }
+
+    expireStatusEffects() {
+      const c = this.state.player.condition;
+      c.statusEffects = Array.isArray(c.statusEffects) ? c.statusEffects : [];
+      const before = c.statusEffects.length;
+      const now = asDate(this.state.world.now);
+      const expired = c.statusEffects.filter(x => x.expiresAt && asDate(x.expiresAt) <= now);
+      c.statusEffects = c.statusEffects.filter(x => !x.expiresAt || asDate(x.expiresAt) > now);
+      if (expired.length) this.log('status', `Expired status effects: ${expired.map(x => x.label || x.id).join(', ')}.`, true);
+      return before - c.statusEffects.length;
+    }
+
+    applyAIActionResolution(raw, resolution) {
+      const s = this.state;
+      const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, Number(n) || 0));
+      const effects = resolution && resolution.effects && typeof resolution.effects === 'object' ? resolution.effects : {};
+      const notes = [];
+      let changes = 0;
+
+      s.meta.turn += 1;
+      this.log('player', `Player free action: ${raw}`);
+      this.log('parse', 'Free action routed through Milestone 2 AI action interpreter.');
+
+      const duration = clamp(resolution && resolution.duration_minutes != null ? resolution.duration_minutes : 4, 1, 1440);
+      let narrative = String(resolution && resolution.narrative || '').trim() || `You attempt to ${String(raw).replace(/^i\s+/i, '')}.`;
+
+      if (resolution && resolution.possible === false) {
+        const visibleEvents = this.advanceTime(Math.min(duration, 10)).visibleEvents;
+        if (Array.isArray(resolution.unsupported) && resolution.unsupported.length) notes.push(...resolution.unsupported.map(String));
+        if (resolution.no_state_change_reason) notes.push(String(resolution.no_state_change_reason));
+        if (!notes.length) notes.push('The action could not be carried out as stated, so no tracked state was changed.');
+        narrative += `\n\nSimulation note: ${notes.join(' ')}`;
+        const result = { ok: false, type: 'ai_freeform', minutes: duration, narrative };
+        s.ui.lastActionResults = [result];
+        s.ui.lastSimulationNotice = notes.join(' ');
+        s.ui.lastNarrative = this.provider.generateScene(s, { results: [result], visibleEvents });
+        s.ui.suggestions = this.provider.generateSuggestions(s);
+        s.meta.updatedAt = s.world.now;
+        this.log('scene', 'AI free action rejected or only partially understood.');
+        return { state: s, results: [result], visibleEvents, narrative: s.ui.lastNarrative, suggestions: s.ui.suggestions };
+      }
+
+      // Core condition deltas. Positive hunger means hungrier; positive stress means more stressed.
+      const condition = effects.condition || {};
+      for (const key of ['energy', 'hunger', 'stress']) {
+        if (condition[key] == null) continue;
+        const delta = clamp(condition[key], -30, 30);
+        if (!delta) continue;
+        s.player.condition[key] = clamp(Number(s.player.condition[key] || 0) + delta, 0, 100);
+        changes += 1;
+        this.log('condition', `${key} ${delta >= 0 ? '+' : ''}${delta} from free action.`, true);
+        const labels={energy:'Energy',hunger:'Hunger',stress:'Stress'}; this.feedback(`${labels[key]} ${delta>0?'increased':'decreased'}`);
+      }
+
+      // Temporary effects such as high, caffeinated, sore, buzzed, focused, etc.
+      const statuses = Array.isArray(effects.statuses) ? effects.statuses.slice(0, 6) : [];
+      s.player.condition.statusEffects = Array.isArray(s.player.condition.statusEffects) ? s.player.condition.statusEffects : [];
+      for (const st of statuses) {
+        if (!st || !st.label) continue;
+        const minutes = clamp(st.duration_minutes == null ? 60 : st.duration_minutes, 5, 1440);
+        const id = String(st.id || st.label).toLowerCase().replace(/[^a-z0-9_-]+/g, '-').slice(0, 48) || `status-${Date.now()}`;
+        const status = {
+          id, label: String(st.label).slice(0, 80), intensity: String(st.intensity || 'mild').slice(0, 24),
+          startedAt: s.world.now, expiresAt: addMinutesISO(s.world.now, minutes),
+          impairsDriving: Boolean(st.impairs_driving ?? st.impairsDriving),
+          modifiers: {
+            coordination: clamp(st.modifiers && st.modifiers.coordination, -25, 25),
+            composure: clamp(st.modifiers && st.modifiers.composure, -25, 25),
+            driving: clamp(st.modifiers && st.modifiers.driving, -25, 25),
+          },
+        };
+        s.player.condition.statusEffects = s.player.condition.statusEffects.filter(x => x.id !== id);
+        s.player.condition.statusEffects.push(status);
+        changes += 1;
+        this.log('status', `Status applied: ${status.label} until ${status.expiresAt}.`, true); this.feedback(status.label); this.addActivity('status',`${status.label} status began (${status.intensity}).`);
+      }
+
+      // Relationship effects. Only NPCs actually present can be affected by a non-phone free action.
+      const relEffects = Array.isArray(effects.relationships) ? effects.relationships.slice(0, 8) : [];
+      const appliedRelationshipNpcIds = new Set();
+      for (const rel of relEffects) {
+        if (!rel || !rel.npc_id || !s.npcs[rel.npc_id]) { notes.push('A requested relationship effect targeted an unknown NPC and was not applied.'); continue; }
+        const npc = s.npcs[rel.npc_id];
+        if (npc.current.locationId !== s.world.playerLocationId) { notes.push(`${npc.name} was not present, so the in-person relationship effect was not applied.`); continue; }
+        const deltas = {};
+        for (const key of ['trust','affection','respect','attraction','fear','resentment']) {
+          const v = clamp(rel[key], -8, 8);
+          if (v) deltas[key] = v;
+        }
+        if (Object.keys(deltas).length) {
+          this.changeRelationship(npc.id, deltas, String(rel.reason || `Free action: ${raw}`).slice(0, 240));
+          changes += 1;
+          appliedRelationshipNpcIds.add(npc.id);
+        }
+      }
+
+      // Flirting must have a relationship consequence when it is actually perceived as flirting.
+      const socialIntent = String(resolution && resolution.social_intent || '').toLowerCase();
+      const perceivedAsFlirting = Boolean(resolution && (resolution.perceived_as_flirting ?? resolution.perceivedAsFlirting));
+      if (socialIntent === 'flirt' && perceivedAsFlirting) {
+        let targetId = String(resolution.flirt_target_npc_id || resolution.flirtTargetNpcId || '');
+        if (!targetId) {
+          const present = Object.values(s.npcs).find(n => n.current.locationId === s.world.playerLocationId);
+          if (present) targetId = present.id;
+        }
+        const npc = s.npcs[targetId];
+        if (npc && npc.current.locationId === s.world.playerLocationId && !appliedRelationshipNpcIds.has(npc.id)) {
+          const reception = String(resolution.flirt_reception || resolution.flirtReception || 'neutral').toLowerCase();
+          const deltas = reception === 'positive' ? { attraction: 2, affection: 1 } : reception === 'negative' ? { attraction: -1, resentment: 2, respect: -1 } : { attraction: 1 };
+          this.changeRelationship(npc.id, deltas, `Jonathan's behavior was perceived by ${npc.name} as flirting (${reception}).`);
+          this.addMemory(npc.id, { event: `Jonathan flirted with ${npc.name}; ${npc.name} received it ${reception}ly.`, emotionalValence: reception === 'positive' ? 0.35 : reception === 'negative' ? -0.35 : 0.05, emotionalStrength: 0.3, importance: 0.35, decay: 'slow', private: false, secret: false });
+          changes += 1;
+        } else if (!npc) {
+          notes.push('Flirting was detected, but no present tracked NPC could receive the relationship effect.');
+        }
+      }
+
+      // Skill practice is intentionally slow: AI may award at most one point per relevant skill per action.
+      const skillEffects = Array.isArray(effects.skills) ? effects.skills.slice(0, 8) : [];
+      for (const sk of skillEffects) {
+        if (!sk || !Object.prototype.hasOwnProperty.call(s.player.skills, sk.skill)) continue;
+        const delta = clamp(sk.delta, 0, 1);
+        if (!delta) continue;
+        s.player.skills[sk.skill] = clamp(Number(s.player.skills[sk.skill] || 0) + delta, 0, 100);
+        changes += 1;
+        this.log('skill', `${sk.skill} +${delta} through relevant practice.`, true);
+      }
+
+      // Money can change, but only with a description and bounded amount.
+      const money = effects.money;
+      if (money && money.delta != null && money.description) {
+        const delta = clamp(money.delta, -1000, 1000);
+        if (delta < 0 && s.player.money.checking + s.player.money.cash < Math.abs(delta)) {
+          notes.push('A spending effect exceeded available money and was not applied.');
+        } else if (delta) {
+          if (delta < 0) s.player.money.checking = Math.max(0, s.player.money.checking + delta);
+          else s.player.money.checking += delta;
+          s.bankTransactions.push({ id: makeId('tx', s), at: s.world.now, amount: Math.abs(delta), direction: delta < 0 ? 'out' : 'in', description: String(money.description).slice(0, 100), balanceAfter: s.player.money.checking });
+          changes += 1;
+        }
+      }
+
+      const consumables = Array.isArray(effects.consumables) ? effects.consumables.slice(0,6) : [];
+      for (const item of consumables) {
+        if (!item || item.item_id !== 'cannabis_flower') continue;
+        const c=s.player.consumables && s.player.consumables.cannabisFlower; if(!c) continue;
+        let delta=clamp(item.delta_grams,-28,28);
+        if(delta<0 && Math.abs(delta)>c.quantity){ delta=-c.quantity; notes.push('You used the remaining cannabis; there was not enough for the full proposed amount.'); }
+        if(delta){ c.quantity=Math.max(0,Math.round((c.quantity+delta)*100)/100); changes+=1; this.feedback(`Cannabis supply ${delta<0?'decreased':'increased'} · ${c.quantity.toFixed(2)} g remaining`); this.addActivity('inventory',`Cannabis flower ${delta<0?'used':'added'}: ${Math.abs(delta).toFixed(2)}g · ${c.quantity.toFixed(2)}g remaining.`); }
+      }
+
+      const visibleFeedback = Array.isArray(resolution && resolution.visible_feedback) ? resolution.visible_feedback.slice(0,6) : [];
+      for (const item of visibleFeedback) if(item) { this.feedback(String(item).slice(0,180)); this.addActivity('world',String(item).slice(0,220)); }
+
+      const injury = effects.injury;
+      if (injury && injury.occurred) {
+        s.player.condition.injured = true;
+        s.player.condition.injuryNote = String(injury.description || 'Minor injury').slice(0, 180);
+        changes += 1;
+        notes.push('Detailed medical simulation is not implemented; only a general injury flag was recorded.');
+      }
+
+      const situationUpdates = Array.isArray(effects.situation_updates) ? effects.situation_updates.slice(0, 8) : [];
+      for (const up of situationUpdates) {
+        const sit = s.activeSituations.find(x => x.id === up.id);
+        if (!sit) continue;
+        if (['active','resolved','failed','expired'].includes(up.status)) sit.status = up.status;
+        if (Array.isArray(up.add_known_information)) {
+          sit.knownInformation = sit.knownInformation || [];
+          for (const fact of up.add_known_information.slice(0, 4)) if (fact && !sit.knownInformation.includes(String(fact))) sit.knownInformation.push(String(fact).slice(0, 220));
+        }
+        changes += 1;
+      }
+
+      const memories = Array.isArray(resolution && resolution.memories) ? resolution.memories.slice(0, 8) : [];
+      for (const m of memories) {
+        if (!m || !m.npc_id || !s.npcs[m.npc_id] || !m.event) continue;
+        const npc = s.npcs[m.npc_id];
+        if (npc.current.locationId !== s.world.playerLocationId) continue;
+        this.addMemory(npc.id, { event: String(m.event).slice(0, 260), emotionalValence: clamp(m.emotional_valence, -1, 1), emotionalStrength: clamp(m.emotional_strength == null ? 0.25 : m.emotional_strength, 0, 1), importance: clamp(m.importance == null ? 0.3 : m.importance, 0, 1), decay: m.importance >= 0.65 ? 'slow' : 'normal', private: Boolean(m.private), secret: false });
+        changes += 1;
+      }
+
+      if (Array.isArray(resolution && resolution.unsupported)) {
+        for (const item of resolution.unsupported.slice(0, 6)) if (item) notes.push(String(item).slice(0, 240));
+      }
+      if (!changes && resolution && resolution.no_state_change_reason) notes.push(String(resolution.no_state_change_reason).slice(0, 300));
+      if (!changes && !notes.length) notes.push('I understood the free-form action, but this build has no implemented state effect for it yet, so nothing tracked was changed.');
+      if (!changes) this.feedback('No tracked state changed','warn');
+
+      const visibleEvents = this.advanceTime(duration).visibleEvents;
+      this.maybeScheduleDealerCheckIn();
+      this.updateSituations();
+      this.compressHistoryIfNeeded();
+      const activeStatuses = this.activeStatusEffects();
+      if (activeStatuses.length) s.player.condition.description = activeStatuses.map(x => x.label).join(', ');
+      else s.player.condition.description = s.player.condition.energy < 25 ? 'Tired' : s.player.condition.hunger > 75 ? 'Hungry' : s.player.condition.injured ? 'Injured' : 'Fine';
+
+      if (notes.length) narrative += `\n\nSimulation note: ${notes.join(' ')}`;
+      const result = { ok: true, type: 'ai_freeform', minutes: duration, narrative }; this.addActivity('action', narrative.slice(0,300));
+      s.ui.lastActionResults = [result];
+      s.ui.lastSimulationNotice = notes.join(' ');
+      s.ui.lastNarrative = this.provider.generateScene(s, { results: [result], visibleEvents });
+      s.ui.suggestions = this.provider.generateSuggestions(s);
+      s.meta.updatedAt = s.world.now;
+      this.log('scene', `Milestone 2 free action resolved; ${changes} tracked state change group(s).`);
+      return { state: s, results: [result], visibleEvents, narrative: s.ui.lastNarrative, suggestions: s.ui.suggestions, changes };
     }
 
     advanceTime(minutes) {
@@ -1188,10 +1700,11 @@ button:disabled { opacity: .38; cursor: default; }
       const from = s.world.now;
       const to = addMinutesISO(from, Math.max(0, minutes));
       s.world.now = to;
+      this.expireStatusEffects();
       this.updatePlayerNeeds(minutes);
       this.simulateNPCs(from, to);
       const visibleEvents = this.processScheduledEvents(from, to);
-      this.log('time', `Advanced ${minutes} minute${minutes === 1 ? '' : 's'} to ${to}.`);
+      this.log('time', `Advanced ${minutes} minute${minutes === 1 ? '' : 's'} to ${to}.`); if(minutes>=5) this.feedback(`${minutes>=60?`${Math.floor(minutes/60)}h ${minutes%60}m`:`${minutes} min`} passed`);
       return { from, to, visibleEvents };
     }
 
@@ -1199,7 +1712,8 @@ button:disabled { opacity: .38; cursor: default; }
       const c = this.state.player.condition;
       c.hunger = Math.min(100, c.hunger + minutes / 55);
       if (minutes > 90) c.energy = Math.max(0, c.energy - minutes / 180);
-      c.description = c.energy < 25 ? 'Tired' : c.hunger > 75 ? 'Hungry' : 'Fine';
+      const statuses = this.activeStatusEffects();
+      c.description = statuses.length ? statuses.map(x => x.label).join(', ') : c.energy < 25 ? 'Tired' : c.hunger > 75 ? 'Hungry' : c.injured ? 'Injured' : 'Fine';
     }
 
     simulateNPCs(from, to) {
@@ -1227,6 +1741,7 @@ button:disabled { opacity: .38; cursor: default; }
         if (weekday && mins >= 18 * 60 + 30 && mins < 20 * 60) return { locationId: 'gym', activity: 'working out' };
         return { locationId: 'daniel_home', activity: 'at home' };
       }
+      if (npc.id === 'eli') return { locationId:'unknown', activity:'going about the day' };
       if (npc.id === 'dad') {
         if (weekday && mins >= 8 * 60 && mins < 16 * 60 + 30) return { locationId: 'dad_studio', activity: 'working' };
         return { locationId: 'dad_home', activity: 'at home' };
@@ -1238,7 +1753,15 @@ button:disabled { opacity: .38; cursor: default; }
       const s = this.state; const visible = [];
       const due = s.scheduledEvents.filter(e => e.status === 'queued' && asDate(e.triggerAt) <= asDate(to)).sort((a, b) => asDate(a.triggerAt) - asDate(b.triggerAt));
       for (const event of due) {
-        if (event.type === 'message_response') {
+        if (event.type === 'payroll') {
+          const pe=this.processPayrollEvent(event); if(pe) visible.push(pe);
+        } else if (event.type === 'dealer_checkin') {
+          const npc=s.npcs.eli; const thread=npc.phone.threadId;
+          s.messages[thread].push({id:makeId('msg',s),at:event.triggerAt,senderId:'eli',recipientId:'jonathan',body:'You good for a bit or need me to set something aside?',read:false,topic:'cannabis',intent:'check_in'});
+          s.player.consumables.cannabisFlower.lastDealerCheckInAt=event.triggerAt; event.status='completed'; visible.push({type:'message',text:'A message from Eli arrives.'}); this.addActivity('message','Eli checked in.');
+        } else if (event.type === 'work_shift') {
+          const end=asDate(event.deadlineAt); if(asDate(to)>=end){ if((event.workedMinutes||0)<=0){event.status='missed';visible.push({type:'missed',text:'Your scheduled work shift has ended without any paid time logged.'});this.applyMissedWorkConsequence(event);this.addActivity('work','Scheduled shift missed.',{importance:'high'});} else {event.status='completed';} } else if(asDate(to)>=asDate(event.triggerAt) && event.status==='queued') event.status='started';
+        } else if (event.type === 'message_response') {
           const npc = s.npcs[event.npcId]; const thread = npc.phone.threadId;
           const sent = (s.messages[thread] || []).find(m => m.id === event.payload.respondingTo);
           let incomingBody = event.payload.incomingBody;
@@ -1302,8 +1825,14 @@ button:disabled { opacity: .38; cursor: default; }
         }
       }
 
+      // Started work shifts become completed/partial at end; a zero-minute shift is missed.
+      s.scheduledEvents.filter(e => e.type==='work_shift' && e.status === 'started' && e.deadlineAt && asDate(to) >= asDate(e.deadlineAt)).forEach(event => {
+        if((event.workedMinutes||0)>0){ event.status='completed'; this.addActivity('work',`Workday closed with ${(event.workedMinutes/60).toFixed(2)} paid hours logged.`); }
+        else { event.status='missed'; visible.push({type:'missed',text:'The scheduled work shift ended without any paid time logged.'}); this.applyMissedWorkConsequence(event); this.addActivity('work','Scheduled shift missed.',{importance:'high'}); }
+      });
+
       // Started appointments can become missed as more time passes.
-      s.scheduledEvents.filter(e => e.status === 'started' && e.deadlineAt && asDate(to) > asDate(e.deadlineAt)).forEach(event => {
+      s.scheduledEvents.filter(e => e.type === 'appointment' && e.status === 'started' && e.deadlineAt && asDate(to) > asDate(e.deadlineAt)).forEach(event => {
         event.status = 'missed';
         s.journal.recentMajorEvents.unshift({ at: to, text: `Missed: ${event.title}` });
         visible.push({ type: 'missed', text: `The window for ${event.title.toLowerCase()} passes. It is now missed.` });
@@ -1371,7 +1900,10 @@ button:disabled { opacity: .38; cursor: default; }
         npc.relationship[key] = Math.max(0, Math.min(100, npc.relationship[key] + delta));
         applied.push(`${key} ${delta >= 0 ? '+' : ''}${delta}`);
       }
-      if (applied.length) this.log('relationship', `${npc.name}: ${applied.join(', ')}. Reason: ${reason}`, true);
+      if (applied.length) {
+        this.log('relationship', `${npc.name}: ${applied.join(', ')}. Reason: ${reason}`, true);
+        const cue=this.relationshipCue(npc,changes); if(cue){ npc.publicSignal={text:cue,at:this.state.world.now}; this.feedback(cue); this.addActivity('relationship',cue); }
+      }
     }
 
     updateSituations() {
@@ -1530,6 +2062,29 @@ button:disabled { opacity: .38; cursor: default; }
       assert(plan.body.length > 12, 'Fallback reply is too empty to be useful.');
     });
 
+    check('14 — Unscheduled work is rejected', () => {
+      const s=createInitialState({startTime:'2026-09-21T10:00:00',seed:14}); const e=new SimulationEngine(s); e.state.world.playerLocationId='work';
+      const r=e.perform('start working'); assert(r.results[0].ok===false && /not scheduled/i.test(r.results[0].narrative),'Unscheduled work was not rejected.');
+    });
+    check('15 — Work segment queues payroll instead of immediate cash', () => {
+      const s=createInitialState({startTime:'2026-10-01T07:40:00',seed:15}); const e=new SimulationEngine(s); e.state.world.playerLocationId='work'; const before=e.state.player.money.checking;
+      e.perform('work through shift until lunch'); assert(e.state.player.employment.payroll.pendingEntries.length>0,'No pending payroll entry.'); assert(e.state.player.money.checking===before,'Work incorrectly paid checking immediately.');
+    });
+    check('16 — Recent activity feed records visible relationship cue', () => {
+      const s=createInitialState({startTime:'2026-09-24T18:00:00',seed:16}); const e=new SimulationEngine(s); e.state.npcs.maya.current.locationId='home'; e.state.world.playerLocationId='home'; e.changeRelationship('maya',{attraction:2,affection:1},'test'); assert(e.state.activityFeed.some(x=>x.kind==='relationship'),'Relationship cue missing from recent feed.');
+    });
+    check('17 — Cannabis purchase updates grams and spending', () => {
+      const s=createInitialState({startTime:'2026-09-24T18:00:00',seed:17}); const e=new SimulationEngine(s); const before=e.state.player.consumables.cannabisFlower.quantity; const r=e.perform('buy an eighth of weed'); assert(e.state.player.consumables.cannabisFlower.quantity>before,'Cannabis grams did not increase.');
+    });
+
+    check('18 — Semimonthly payroll deposits net pay on the 5th/20th', () => {
+      const s=createInitialState({startTime:'2026-10-01T07:40:00',seed:18}); const e=new SimulationEngine(s); e.state.world.playerLocationId='work'; const before=e.state.player.money.checking;
+      e.perform('work through shift until lunch'); e.perform('take lunch'); e.perform('finish shift');
+      const entry=e.state.player.employment.payroll.pendingEntries[0]; assert(entry && /-20T/.test(entry.payDate),'Expected first-half hours to pay on the 20th.');
+      const mins=Math.max(1,Math.round((new Date(entry.payDate)-new Date(e.state.world.now))/60000)+1); e.advanceTime(mins);
+      assert(e.state.player.money.checking>before,'Net payroll did not deposit.'); assert(e.state.player.employment.payroll.paychecks.length>0,'Paycheck record missing.');
+    });
+
     return report;
   }
 
@@ -1541,7 +2096,7 @@ button:disabled { opacity: .38; cursor: default; }
     LocalNarrativeProvider,
     ActionInterpreter,
     runAcceptanceTests,
-    helpers: { nowISO, addMinutesISO, minutesBetween, formatMoney, relationDescriptor, skillDescriptor, publicNPCView, clone },
+    helpers: { nowISO, addMinutesISO, minutesBetween, formatMoney, relationDescriptor, skillDescriptor, publicNPCView, clone, cannabisPriceForGrams, estimateSemimonthlyWithholding },
   };
 });
 
@@ -1674,6 +2229,7 @@ button:disabled { opacity: .38; cursor: default; }
             <section class="scene-card" aria-live="polite">
               <div class="scene-label">Scene</div>
               <div class="scene-text" id="sceneText"></div>
+              <div class="feedback-strip" id="feedbackStrip"></div>
             </section>
             <section class="suggestions-section">
               <div class="section-heading"><h2>Possible actions</h2><span>Suggestions, not limits</span></div>
@@ -1690,6 +2246,7 @@ button:disabled { opacity: .38; cursor: default; }
             <button class="nav-btn" data-tab="map">MAP</button>
             <button class="nav-btn" data-tab="people">PEOPLE</button>
             <button class="nav-btn" data-tab="journal">JOURNAL</button>
+            <button class="nav-btn" data-tab="recent">RECENT</button>
           </nav>
         </div>
         <section class="drawer hidden" id="drawer" aria-modal="true">
@@ -1738,6 +2295,7 @@ button:disabled { opacity: .38; cursor: default; }
       const s = this.engine.state;
       this.updateHeader();
       document.getElementById('sceneText').textContent = s.ui.lastNarrative;
+      const fb=document.getElementById('feedbackStrip'); if(fb){ const items=Array.isArray(s.ui.lastFeedback)?s.ui.lastFeedback:[]; fb.innerHTML=items.map(x=>`<span class="feedback-chip ${(x.tone||'')==='warn'?'warn':''}">${this.esc(typeof x==='string'?x:x.text)}</span>`).join(''); }
       const sug = document.getElementById('suggestions');
       sug.innerHTML = s.ui.suggestions.map((x, i) => `<button class="suggestion" data-suggestion="${i}"><span class="cat">${this.esc(x.category)}</span><span class="txt">${this.esc(x.text)}</span></button>`).join('');
       sug.querySelectorAll('[data-suggestion]').forEach(btn => btn.addEventListener('click', () => {
@@ -1759,24 +2317,113 @@ button:disabled { opacity: .38; cursor: default; }
       const btn = document.getElementById('doBtn');
       if (btn) btn.disabled = true;
       try {
+        // Milestone 2: ambiguous/free-form actions are interpreted by Luna first,
+        // but the local simulation remains authoritative over what state changes
+        // are actually allowed. Deterministic actions stay local and cheap.
+        if (this.shouldUseAIActionResolution(text)) {
+          const handled = await this.tryRemoteActionResolution(text);
+          if (handled) {
+            this.persist();
+            this.renderWorld();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            return;
+          }
+        }
+
         const outcome = this.engine.perform(text);
         this.persist();
         this.renderWorld();
         window.scrollTo({ top: 0, behavior: 'smooth' });
 
-        // If this turn sent a text, opportunistically upgrade the queued local
-        // fallback reply with a remote language-model reply. The simulation does
-        // not depend on the model: if the request fails, the local contextual
-        // dialogue already stored in the event remains in place.
+        // Text-message dialogue uses Luna to replace the queued local fallback.
         const textResults = (outcome && outcome.results || []).filter(r => r && r.type === 'text' && r.outgoingMessageId);
-        for (const result of textResults) {
-          await this.tryRemoteDialogue(result);
-        }
+        for (const result of textResults) await this.tryRemoteDialogue(result);
       } catch (err) {
         console.error(err);
         this.toast(`Action error: ${err.message}`);
       } finally {
         if (btn) btn.disabled = false;
+      }
+    }
+
+    shouldUseAIActionResolution(text) {
+      if (!this.getAIEndpoint() || !this.getAIAccessToken()) return false;
+      const raw = String(text || '').trim();
+      if (!raw) return false;
+      // Phone messages have their own contextual dialogue path.
+      if (/^(?:text|message)\b/i.test(raw)) return false;
+      const actions = this.engine.interpretAction(raw);
+      if (!actions.length) return true;
+      if (actions.some(a => a.type === 'generic' || a.type === 'talk' || a.type === 'eat')) return true;
+      if (actions.some(a => a.type === 'travel' && !a.destinationId)) return true;
+      if (/\b(flirt|kiss|hug|compliment|argue|insult|apologize|smoke|weed|cannabis|drink|beer|wine|cocktail|work\s*out|workout|exercise|meditate|study|read|clean|game|gaming|relax|dance|sing|practice|stretch|run|jog)\b/i.test(raw)) return true;
+      if (actions.length > 1 && actions.some(a => !['travel','grab','wait','sleep','purchase'].includes(a.type))) return true;
+      return false;
+    }
+
+    buildAIActionContext(text) {
+      const s = this.engine.state;
+      const loc = s.locations[s.world.playerLocationId];
+      const presentNpcs = Object.values(s.npcs).filter(n => n.current.locationId === s.world.playerLocationId).map(n => ({
+        id: n.id, name: n.name, occupation: n.occupation, personality: n.personality, current: n.current, relationship: n.relationship,
+        knowledge: n.knowledge, beliefs: n.beliefs, recentMemories: (n.memories || []).slice(-6), unresolvedProblems: n.plans && n.plans.unresolvedProblems || [],
+      }));
+      return {
+        type: 'action_resolution',
+        playerAction: String(text),
+        worldTime: s.world.now,
+        worldMode: s.world.mode,
+        location: { id: loc.id, name: loc.name, type: loc.type, description: loc.description, objects: loc.objects || [] },
+        player: {
+          name: s.player.name, condition: s.player.condition, money: s.player.money, inventory: s.player.inventory,
+          possessions: s.player.possessions.map(p => ({ id: p.id, name: p.name, locationId: p.locationId, portable: p.portable })),
+          skills: s.player.skills, employment: s.player.employment, consumables: s.player.consumables,
+        },
+        presentNpcs,
+        knownLocations: s.player.knownLocationIds.map(id => ({ id, name: s.locations[id] && s.locations[id].name })).filter(x => x.name),
+        activeSituations: s.activeSituations.filter(x => x.status === 'active').map(x => ({ id: x.id, title: x.title, involvedPeople: x.involvedPeople, knownInformation: x.knownInformation || [], deadlineAt: x.deadlineAt, urgency: x.urgency })),
+        implementationCapabilities: {
+          conditionDeltas: ['energy','hunger','stress'],
+          temporaryStatuses: true,
+          statusModifiers: ['coordination','composure','driving'],
+          relationships: ['trust','affection','respect','attraction','fear','resentment'],
+          skillPractice: Object.keys(s.player.skills),
+          moneyTransactions: true,
+          generalInjuryFlagOnly: true,
+          existingSituationUpdates: true,
+          consumables: { cannabis_flower: { unit:'g', quantity:s.player.consumables.cannabisFlower.quantity, lowThreshold:s.player.consumables.cannabisFlower.lowThreshold } },
+          visibleFeedback: true,
+          npcMemories: true,
+          arbitraryNewInventoryObjects: false,
+          detailedMedicalSimulation: false,
+          employmentPayrollIsDeterministicLocal: true,
+        },
+      };
+    }
+
+    async tryRemoteActionResolution(text) {
+      const endpoint = this.getAIEndpoint();
+      const accessToken = this.getAIAccessToken();
+      if (!endpoint || !accessToken) return false;
+      try {
+        this.setAIStatus('resolving-action', endpoint);
+        const response = await fetch(endpoint, { method: 'POST', headers: this.aiRequestHeaders(), body: JSON.stringify(this.buildAIActionContext(text)) });
+        let data = null; try { data = await response.json(); } catch (_) {}
+        if (!response.ok) {
+          const serverMessage = data && (data.error || data.message);
+          throw new Error(`AI action endpoint ${response.status}${serverMessage ? `: ${serverMessage}` : ''}`);
+        }
+        if (!data || (data.type !== 'action_resolution' && data.kind !== 'action_resolution')) throw new Error('Backend does not yet support Milestone 2 action_resolution');
+        if (typeof data.narrative !== 'string') throw new Error('AI action response is missing narrative');
+        this.recordAIUsage(data);
+        this.engine.applyAIActionResolution(text, data);
+        this.setAIStatus('connected', `Milestone 2 action resolved: ${data.narrative.slice(0, 140)}`);
+        return true;
+      } catch (err) {
+        console.warn('Remote action interpretation unavailable; local fallback used.', err);
+        this.setAIStatus('error', err.message);
+        this.engine.log('ai', `Remote free-action interpretation unavailable (${err.message}).`);
+        return false;
       }
     }
 
@@ -2007,6 +2654,7 @@ button:disabled { opacity: .38; cursor: default; }
       if (this.drawer === 'map') body.innerHTML = this.mapHTML();
       if (this.drawer === 'people') body.innerHTML = this.peopleHTML();
       if (this.drawer === 'journal') body.innerHTML = this.journalHTML();
+      if (this.drawer === 'recent') body.innerHTML = this.recentHTML();
       this.bindDrawerActions();
     }
 
@@ -2016,7 +2664,9 @@ button:disabled { opacity: .38; cursor: default; }
         Social: ['persuasion','deception','charm','intimidation'], Mental: ['observation','knowledge','creativity','composure'],
         Physical: ['strength','fitness','coordination','endurance'], Practical: ['driving','technology','repair','firstAid']
       };
+      const activeStatuses=this.engine.activeStatusEffects(); const pending=p.employment.payroll.pendingEntries.filter(x=>x.status==='pending'); const pendingGross=pending.reduce((a,x)=>a+x.gross,0); const cannabis=p.consumables&&p.consumables.cannabisFlower;
       return `
+        <div class="status-strip">${activeStatuses.length?activeStatuses.map(x=>`<span class="status-chip">${this.esc(x.label)} · ${this.esc(x.intensity)}</span>`).join(''):'<span class="status-chip">Fine</span>'}</div>
         <div class="stat-grid">
           <div class="stat"><span class="meta">Condition</span><strong>${this.esc(p.condition.description)}</strong></div>
           <div class="stat"><span class="meta">Checking</span><strong>${formatMoney(p.money.checking)}</strong></div>
@@ -2024,7 +2674,10 @@ button:disabled { opacity: .38; cursor: default; }
           <div class="stat"><span class="meta">Location</span><strong>${this.esc(s.locations[s.world.playerLocationId].name)}</strong></div>
         </div>
         <div class="divider"></div>
-        <div class="card"><h3>Employment</h3><p>${this.esc(p.employment.role)} · ${this.esc(p.employment.employer)}</p><p>${this.esc(p.employment.scheduleSummary)}</p></div>
+        ${Array.isArray(p.condition.statusEffects) && p.condition.statusEffects.length ? `<div class="card"><h3>Current effects</h3>${p.condition.statusEffects.map(x => `<div class="skill-row"><span>${this.esc(x.label)} <span class="meta">(${this.esc(x.intensity || 'mild')})</span></span><strong>${this.esc(this.shortDate(x.expiresAt))}</strong></div>`).join('')}</div><div class="divider"></div>` : ''}
+        ${p.condition.injured && p.condition.injuryNote ? `<div class="card"><h3>Injury</h3><p>${this.esc(p.condition.injuryNote)}</p></div><div class="divider"></div>` : ''}
+        <div class="card"><h3>Employment</h3><p>${this.esc(p.employment.role)} · ${this.esc(p.employment.employer)} · ${formatMoney(p.employment.hourlyRate)}/hr</p><p>${this.esc(p.employment.scheduleSummary)}</p><div class="payroll-grid"><div><span class="meta">Pending gross</span><strong>${formatMoney(pendingGross)}</strong></div><div><span class="meta">Pending hours</span><strong>${(pending.reduce((a,x)=>a+x.minutes,0)/60).toFixed(2)}</strong></div></div></div>
+        ${cannabis?`<div class="card"><h3>Cannabis flower</h3><p>${Number(cannabis.quantity||0).toFixed(2)} g on hand</p><p class="meta">CA market baseline: $8.54/g · $21.67/eighth (Aug 2026 baseline)</p></div>`:''}
         <div class="divider"></div>
         <h3>Carried</h3><div class="cards">${p.inventory.map(id => `<div class="card">${this.esc((p.possessions.find(x => x.id === id) || {name:id}).name)}</div>`).join('')}</div>
         <div class="divider"></div>
@@ -2051,7 +2704,9 @@ button:disabled { opacity: .38; cursor: default; }
       }
       if (this.phoneTab === 'bank') {
         const tx = s.bankTransactions.slice().reverse();
-        return `<div class="card"><div class="meta">Checking balance</div><div class="money" style="font-size:28px;margin-top:4px">${formatMoney(s.player.money.checking)}</div><p>Cash on hand: ${formatMoney(s.player.money.cash)}</p></div><div class="divider"></div><div class="cards">${tx.map(t => `<div class="card"><div class="row"><strong>${this.esc(t.description)}</strong><span class="money">${t.direction === 'out' ? '-' : '+'}${formatMoney(t.amount)}</span></div><div class="meta">${this.shortDate(t.at)}</div></div>`).join('')}</div>`;
+        const payroll=s.player.employment.payroll; const pending=payroll.pendingEntries.filter(x=>x.status==='pending'); const pg=pending.reduce((a,x)=>a+x.gross,0), pm=pending.reduce((a,x)=>a+x.minutes,0);
+        const checks=payroll.paychecks.slice(0,4);
+        return `<div class="card"><div class="meta">Checking balance</div><div class="money" style="font-size:28px;margin-top:4px">${formatMoney(s.player.money.checking)}</div><p>Cash on hand: ${formatMoney(s.player.money.cash)}</p></div><div class="card"><h3>Pending payroll</h3><p>${(pm/60).toFixed(2)} hours · ${formatMoney(pg)} gross queued</p><p class="meta">Paydays: 5th and 20th. Estimated withholding assumes single/no extra W-4 or DE 4 adjustments.</p></div>${checks.length?`<div class="cards">${checks.map(c=>`<div class="card"><strong>${this.esc(c.payDate)}</strong><p>${(c.minutes/60).toFixed(2)} hr · ${formatMoney(c.gross)} gross · ${formatMoney(c.net)} net</p><div class="meta">Federal ${formatMoney(c.tax.federal)} · CA PIT ${formatMoney(c.tax.caPIT)} · Social Security ${formatMoney(c.tax.socialSecurity)} · Medicare ${formatMoney(c.tax.medicare)} · CA SDI ${formatMoney(c.tax.caSDI)} · LA local $0.00</div></div>`).join('')}</div>`:''}<div class="divider"></div><div class="cards">${tx.map(t => `<div class="card"><div class="row"><strong>${this.esc(t.description)}</strong><span class="money">${t.direction === 'out' ? '-' : '+'}${formatMoney(t.amount)}</span></div><div class="meta">${this.shortDate(t.at)}</div></div>`).join('')}</div>`;
       }
       if (this.phoneTab === 'calendar') {
         const events = s.scheduledEvents.filter(e => e.visibility === 'known').sort((a,b) => new Date(a.triggerAt)-new Date(b.triggerAt));
@@ -2079,7 +2734,7 @@ button:disabled { opacity: .38; cursor: default; }
       return `<div class="cards">${Object.values(s.npcs).map(n => {
         const view = publicNPCView(n);
         const lastInteraction = n.memories.filter(m => m.people.includes('jonathan') && !m.secret).slice(-1)[0];
-        return `<div class="card"><div class="row"><div><h3>${this.esc(view.name)}</h3><span class="meta">${this.esc(view.relationship)}</span></div><span class="pill">${this.esc(view.generalTone)}</span></div><p>Works as: ${this.esc(view.occupation)}</p><p>Trust: ${this.esc(view.trust)}</p>${lastInteraction ? `<p>Last remembered interaction: ${this.esc(this.shortDate(lastInteraction.timestamp))}</p>`:''}</div>`;
+        return `<div class="card"><div class="row"><div><h3>${this.esc(view.name)}</h3><span class="meta">${this.esc(view.relationship)}</span></div><span class="pill">${this.esc(view.generalTone)}</span></div><p>Works as: ${this.esc(view.occupation)}</p><p>Trust: ${this.esc(view.trust)}</p>${n.publicSignal?`<p><strong>Recent dynamic:</strong> ${this.esc(n.publicSignal.text)}</p>`:''}${lastInteraction ? `<p>Last remembered interaction: ${this.esc(this.shortDate(lastInteraction.timestamp))}</p>`:''}</div>`;
       }).join('')}</div><p class="meta" style="margin-top:12px">This view only shows information Jonathan reasonably knows. Exact relationship values, beliefs, locations, goals, and private memories stay hidden outside debug mode.</p>`;
     }
 
@@ -2088,6 +2743,11 @@ button:disabled { opacity: .38; cursor: default; }
       const active = s.activeSituations.filter(x => x.status === 'active');
       const done = s.activeSituations.filter(x => x.status !== 'active');
       return `<h3>Active situations</h3><div class="cards">${active.map(x => `<div class="card"><div class="row"><strong>${this.esc(x.title)}</strong><span class="pill">${this.esc(x.urgency)}</span></div>${x.knownInformation.map(k => `<p>${this.esc(k)}</p>`).join('')}</div>`).join('') || '<p class="meta">Nothing active.</p>'}</div><div class="divider"></div><h3>Recent events</h3><div class="cards">${s.journal.recentMajorEvents.map(x => `<div class="card"><strong>${this.esc(x.text)}</strong><div class="meta">${this.shortDate(x.at)}</div></div>`).join('') || '<p class="meta">No major recent events.</p>'}</div>${done.length ? `<div class="divider"></div><h3>Resolved / expired</h3><div class="cards">${done.map(x => `<div class="card"><strong>${this.esc(x.title)}</strong><div class="meta">${this.esc(x.status)}</div></div>`).join('')}</div>`:''}`;
+    }
+
+    recentHTML() {
+      const s=this.engine.state, feed=Array.isArray(s.activityFeed)?s.activityFeed:[];
+      return `<div class="cards">${feed.length?feed.slice(0,120).map(e=>`<div class="card recent-entry"><div class="recent-kind">${this.esc(e.kind)}</div><div style="margin-top:5px">${this.esc(e.text)}</div><div class="meta" style="margin-top:6px">${this.shortDate(e.at)}</div></div>`).join(''):'<p class="meta">No recent logged actions yet.</p>'}</div><p class="meta" style="margin-top:12px">This feed shows only changes Jonathan could reasonably notice. Hidden beliefs, exact relationship scores, private NPC activity, and secret simulation state remain in DEV only.</p>`;
     }
 
     bindDrawerActions() {
@@ -2130,7 +2790,7 @@ button:disabled { opacity: .38; cursor: default; }
       const usageHtml = lastUsage
         ? `<div class="divider"></div><h3 style="margin-bottom:8px">Luna usage</h3><div class="debug-summary"><div class="stat"><span class="meta">Last input</span><strong>${lastUsage.inputTokens.toLocaleString()} tokens</strong></div><div class="stat"><span class="meta">Last output</span><strong>${lastUsage.outputTokens.toLocaleString()} tokens</strong></div><div class="stat"><span class="meta">Last estimated cost</span><strong>${this.formatAICost(lastUsage.estimatedCost)}</strong></div><div class="stat"><span class="meta">Browser total</span><strong>${this.formatAICost(usage.estimatedCost)}</strong></div></div><div class="meta">${usage.requests} API request${usage.requests === 1 ? '' : 's'} tracked · ${usage.inputTokens.toLocaleString()} input · ${usage.outputTokens.toLocaleString()} output${usage.cachedInputTokens ? ` · ${usage.cachedInputTokens.toLocaleString()} cached input` : ''}. Cost is an estimate using current GPT-5.6 Luna standard token rates.</div>`
         : `<div class="divider"></div><div class="meta">Luna usage: waiting for the backend to return token usage.</div>`;
-      const aiCard = `<div class="card"><h3>AI dialogue — owner access</h3><p class="meta">Public players use the local dialogue engine by default. GPT-5.6 Luna requests require your private owner token. The token is stored only in this browser and is never committed to GitHub.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://vercel-dialogue-api-project.vercel.app/api/dialogue" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div class="inline-compose" style="margin-top:8px"><input id="aiAccessTokenInput" type="password" autocomplete="off" placeholder="Owner access token" value="${this.esc(aiAccessToken)}" /><button id="aiAccessTokenSave">Save token</button></div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="secondary" id="aiEndpointTest">Test connection</button><button class="ghost" id="aiUsageReset">Reset usage counter</button></div><div class="meta" style="margin-top:8px">Endpoint: ${this.esc(aiEndpoint || 'none')}</div><div class="meta" style="margin-top:4px">Owner token: ${aiAccessToken ? 'configured on this device' : 'not configured — Luna disabled'}</div><div class="meta" style="margin-top:4px">Last AI status: ${this.esc(statusText)}</div>${usageHtml}</div><div class="divider"></div>`;
+      const aiCard = `<div class="card"><h3>AI — Milestone 2 owner access</h3><p class="meta">Public players use local fallbacks by default. GPT-5.6 Luna handles owner NPC dialogue and ambiguous free-form actions; requests require your private owner token. The token is stored only in this browser and is never committed to GitHub.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://vercel-dialogue-api-project.vercel.app/api/dialogue" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div class="inline-compose" style="margin-top:8px"><input id="aiAccessTokenInput" type="password" autocomplete="off" placeholder="Owner access token" value="${this.esc(aiAccessToken)}" /><button id="aiAccessTokenSave">Save token</button></div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="secondary" id="aiEndpointTest">Test connection</button><button class="ghost" id="aiUsageReset">Reset usage counter</button></div><div class="meta" style="margin-top:8px">Endpoint: ${this.esc(aiEndpoint || 'none')}</div><div class="meta" style="margin-top:4px">Owner token: ${aiAccessToken ? 'configured on this device' : 'not configured — Luna disabled'}</div><div class="meta" style="margin-top:4px">Last AI status: ${this.esc(statusText)}</div>${usageHtml}</div><div class="divider"></div>`;
       el.innerHTML = `${tests}${aiCard}<div class="debug-summary"><div class="stat"><span class="meta">World time</span><strong>${this.esc(s.world.now)}</strong></div><div class="stat"><span class="meta">Turn</span><strong>${s.meta.turn}</strong></div><div class="stat"><span class="meta">Queued events</span><strong>${queued}</strong></div><div class="stat"><span class="meta">Log entries</span><strong>${s.simulationLog.length}</strong></div></div><h3>Complete internal state</h3><pre class="debug-pre">${this.esc(JSON.stringify(s, null, 2))}</pre>`;
       const aiSave = document.getElementById('aiEndpointSave');
       if (aiSave) aiSave.addEventListener('click', () => {
@@ -2160,6 +2820,7 @@ button:disabled { opacity: .38; cursor: default; }
         this.setAIStatus('testing', endpoint);
         try {
           const testPayload = {
+            type: 'npc_reply',
             npc: { name: 'Maya', personality: { conversationalStyle: 'direct' }, current: { mood: 'neutral' }, relationship: { label: 'Close Friend' }, knowledge: { factsKnown: [] }, beliefs: {}, memories: [], plans: {} },
             recentMessages: [{ sender: 'Maya', text: 'This week was ridiculous.' }, { sender: 'Jonathan', text: 'What happened?' }],
             playerMessage: 'What happened?',
