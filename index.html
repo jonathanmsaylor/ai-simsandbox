@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0c1016" />
-<title>AI Sandbox — Realistic Life V1.3</title>
+<title>AI Sandbox — Realistic Life V1.4</title>
 <style>
 :root {
   color-scheme: dark;
@@ -264,6 +264,26 @@ button:disabled { opacity: .38; cursor: default; }
 .alert-banner strong { display:block; margin-bottom:3px; }
 .alert-banner button { border:1px solid var(--line); background:transparent; border-radius:9px; color:var(--muted); min-width:34px; height:34px; }
 
+.urgent-stack { display:grid; gap:8px; margin-bottom:12px; }
+.urgent-alert { border:1px solid rgba(255,138,138,.7); background:rgba(255,70,70,.14); border-radius:14px; padding:12px 14px; box-shadow:0 0 0 1px rgba(255,70,70,.06) inset; }
+.urgent-alert strong { color:#ffb2b2; display:block; margin-bottom:4px; letter-spacing:.02em; }
+.incoming-call { border:1px solid rgba(121,168,255,.55); background:rgba(121,168,255,.12); border-radius:14px; padding:14px; margin-bottom:12px; }
+.incoming-call-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+.incoming-call-actions button { min-height:38px; border-radius:10px; padding:8px 12px; }
+.typing-bubble { width:fit-content; max-width:84%; padding:10px 12px; border-radius:14px; background:var(--panel-3); color:var(--muted); font-size:13px; }
+.typing-dots::after { content:'…'; display:inline-block; width:1.2em; overflow:hidden; vertical-align:bottom; animation:typingdots 1.15s steps(4,end) infinite; }
+@keyframes typingdots { 0%{width:0} 100%{width:1.2em} }
+.thread-sticky-head { position:sticky; top:-16px; z-index:4; margin:-16px -16px 8px; padding:10px 16px 8px; background:#101722; border-bottom:1px solid var(--line); }
+.suggestion .duration { display:block; color:var(--muted); font-size:10px; margin-top:6px; line-height:1.25; }
+.composer-main { min-width:0; flex:1; }
+.composer-estimate { color:var(--muted); font-size:10px; min-height:14px; padding:0 12px 2px; }
+.need-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.need-meter { border:1px solid var(--line); border-radius:12px; padding:9px 10px; background:var(--panel); }
+.need-meter .meta { display:flex; justify-content:space-between; gap:8px; }
+.need-bar { height:5px; border-radius:99px; background:rgba(255,255,255,.08); margin-top:7px; overflow:hidden; }
+.need-fill { height:100%; background:currentColor; opacity:.75; }
+.contact-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+
 
 .toast { position: fixed; z-index: 80; left: 50%; top: 18px; transform: translateX(-50%); background: #202c3e; border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 999px; padding: 10px 14px; font-size: 12px; }
 
@@ -298,7 +318,7 @@ button:disabled { opacity: .38; cursor: default; }
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const SCHEMA_VERSION = 1;
+  const SCHEMA_VERSION = 4;
   const DEFAULT_SAVE_KEY = 'ai-sandbox-v1-save';
 
   const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -429,6 +449,97 @@ button:disabled { opacity: .38; cursor: default; }
     return Math.round(g*8.54*100)/100;
   }
 
+  function ensureMilestone4State(state) {
+    state.meta = state.meta || {};
+    state.meta.milestone = Math.max(4, Number(state.meta.milestone || 0));
+    state.schemaVersion = Math.max(4, Number(state.schemaVersion || 0));
+    state.world = state.world || {};
+    state.world.currentActivity = state.world.currentActivity || null;
+    state.world.lastActionStartedAt = state.world.lastActionStartedAt || null;
+    state.ui = state.ui || {};
+    state.ui.incomingCall = state.ui.incomingCall || null;
+    state.ui.lastWorldEffects = state.ui.lastWorldEffects || { proposed: [], accepted: [], rejected: [] };
+    state.ui.pendingAlerts = Array.isArray(state.ui.pendingAlerts) ? state.ui.pendingAlerts : [];
+
+    const c = state.player.condition = state.player.condition || {};
+    const defaults = {
+      energy:72, hunger:38, stress:24, hydration:72, health:92, pain:0, hygiene:76,
+      bladder:25, socialConnection:58, mood:62, focus:70, fitness:55, intimacyNeed:35,
+      security:67, sleepDebtHours:0, hoursSleptLast24:7.5, awakeMinutes:480, injured:false
+    };
+    for (const [k,v] of Object.entries(defaults)) if (c[k] == null || Number.isNaN(Number(c[k]))) c[k]=v;
+    c.statusEffects = Array.isArray(c.statusEffects) ? c.statusEffects : [];
+    c.sleepHistory = Array.isArray(c.sleepHistory) ? c.sleepHistory : [];
+    c.recentIntake = Array.isArray(c.recentIntake) ? c.recentIntake : [];
+    c.lastAteAt = c.lastAteAt || state.world.now;
+    c.lastDrankAt = c.lastDrankAt || state.world.now;
+    c.lastSleepAt = c.lastSleepAt || state.world.now;
+    c.awakeMinutes = Math.max(0, Number(c.awakeMinutes || 0));
+
+    state.entities = state.entities && typeof state.entities === 'object' && !Array.isArray(state.entities) ? state.entities : {};
+    const seedEntity = (id, spec) => { if (!state.entities[id]) state.entities[id] = { id, createdAt: state.meta.createdAt || state.world.now, source:{type:'seeded'}, properties:{}, ...spec, properties:{...(spec.properties||{})} }; };
+    seedEntity('home_stove',{name:'Gas stove',category:'appliance',subtype:'stove',owner:'jonathan',locationId:'home',containerId:null,quantity:1,unit:'item',portable:false,consumable:false,edible:false,perishable:false,condition:'working',temperature:'room',cleanliness:70,state:'off',properties:{gasFlow:false,flame:false}});
+    seedEntity('home_fridge',{name:'Refrigerator',category:'appliance',subtype:'fridge',owner:'jonathan',locationId:'home',containerId:null,quantity:1,unit:'item',portable:false,consumable:false,edible:false,perishable:false,condition:'working',temperature:'cold',cleanliness:70,state:'on',properties:{temperatureF:38,powered:true}});
+    seedEntity('home_hvac_return',{name:'HVAC return vent',category:'fixture',subtype:'hvac_return',owner:'jonathan',locationId:'home',containerId:null,quantity:1,unit:'item',portable:false,consumable:false,edible:false,perishable:false,condition:'working',temperature:'room',cleanliness:70,state:'clear',properties:{airflowObstruction:0}});
+    seedEntity('home_window',{name:'Living room window',category:'fixture',subtype:'window',owner:'jonathan',locationId:'home',containerId:null,quantity:1,unit:'item',portable:false,consumable:false,edible:false,perishable:false,condition:'working',temperature:'room',cleanliness:70,state:'closed',properties:{open:false}});
+
+    state.environments = state.environments && typeof state.environments === 'object' ? state.environments : {};
+    for (const id of Object.keys(state.locations || {})) {
+      if (!state.environments[id]) state.environments[id] = {
+        locationId:id, temperatureF:(id==='home'?72:74), airQuality:100, airflow:1, odor:'none', smokeLevel:0,
+        gasLevel:0, cleanliness:75, wetness:0, power:true, waterFlow:false, fireLevel:0,
+        weatherExposure:0, windowsOpen:0, noiseLevel:20, lighting:'normal', properties:{}, updatedAt:state.world.now
+      };
+    }
+    for (const env of Object.values(state.environments || {})) {
+      env.properties = env.properties && typeof env.properties === 'object' && !Array.isArray(env.properties) ? env.properties : {};
+      if (env.noiseLevel == null) env.noiseLevel = 20;
+      if (env.lighting == null) env.lighting = 'normal';
+    }
+
+    // Local geospatial registry for realistic travel estimates. Coordinates describe game locations,
+    // not the player's exact real-world address.
+    const coords={home:[34.42,-118.56],work:[34.41,-118.55],maya_home:[34.40,-118.57],daniel_home:[34.43,-118.50],grocery:[34.42,-118.57],coffee:[34.41,-118.56],park:[34.43,-118.56],auto_shop:[34.40,-118.53],gym:[34.42,-118.53],dad_home:[34.45,-118.54],dad_studio:[34.38,-118.54],lax:[33.9416,-118.4085]};
+    for (const [id,xy] of Object.entries(coords)) if (state.locations && state.locations[id] && !state.locations[id].coords) state.locations[id].coords={lat:xy[0],lon:xy[1]};
+    if (state.locations && !state.locations.lax) state.locations.lax={id:'lax',name:'Los Angeles International Airport (LAX)',type:'airport',description:'A major airport south of the city.',objects:['terminals','parking structures'],travel:{home:55},coords:{lat:33.9416,lon:-118.4085}};
+    if (state.environments && !state.environments.lax) state.environments.lax={locationId:'lax',temperatureF:74,airQuality:95,airflow:1,odor:'none',smokeLevel:0,gasLevel:0,cleanliness:70,wetness:0,power:true,waterFlow:false,fireLevel:0,weatherExposure:.3,windowsOpen:0,noiseLevel:55,lighting:'bright',properties:{},updatedAt:state.world.now};
+    state.player.knownLocationIds = Array.isArray(state.player.knownLocationIds) ? state.player.knownLocationIds : [];
+    if (!state.player.knownLocationIds.includes('lax')) state.player.knownLocationIds.push('lax');
+
+    state.commitments = Array.isArray(state.commitments) ? state.commitments : [];
+    for (const commitment of state.commitments) {
+      commitment.involvedNpcIds = Array.isArray(commitment.involvedNpcIds) ? commitment.involvedNpcIds : commitment.npcId ? [commitment.npcId] : [];
+      commitment.durationMinutes = Math.max(5, Number(commitment.durationMinutes || commitment.duration_minutes || 120));
+      commitment.kind = commitment.kind || (/call/i.test(String(commitment.activity||'')) ? 'call' : 'visit');
+      if (!Object.prototype.hasOwnProperty.call(commitment,'plannedDepartureAt')) commitment.plannedDepartureAt = commitment.actualArrivalAt ? addMinutesISO(commitment.actualArrivalAt, commitment.durationMinutes) : null;
+    }
+    state.causalHistory = Array.isArray(state.causalHistory) ? state.causalHistory : [];
+    state.urgentConditions = Array.isArray(state.urgentConditions) ? state.urgentConditions : [];
+    state.phoneCalls = Array.isArray(state.phoneCalls) ? state.phoneCalls : [];
+    state.relationshipHistory = Array.isArray(state.relationshipHistory) ? state.relationshipHistory : [];
+    state.interactionHistory = Array.isArray(state.interactionHistory) ? state.interactionHistory : [];
+
+    state.contacts = Array.isArray(state.contacts) ? state.contacts : [];
+    for (const npc of Object.values(state.npcs || {})) {
+      if (npc.playerKnows == null) npc.playerKnows = true;
+      npc.current = npc.current || {locationId:npc.homeLocationId,activity:'at home',mood:'neutral'};
+      npc.current.scheduleOverride = npc.current.scheduleOverride || null;
+      npc.relationship = npc.relationship || {};
+      if (npc.relationship.familiarity == null) npc.relationship.familiarity = 35;
+      npc.relationshipDynamics = npc.relationshipDynamics || {
+        momentum:0, reciprocity:0, recentPositiveMinutes:0, recentNegativeWeight:0,
+        lastMeaningfulInteractionAt:null, lastPlayerInitiatedAt:null, lastNpcInitiatedAt:null,
+        unansweredMeaningfulMessages:0, lastDecayAt:state.world.now, nextInitiativeCheckAt:addMinutesISO(state.world.now,360)
+      };
+      if(!npc.relationshipDynamics.nextInitiativeCheckAt) npc.relationshipDynamics.nextInitiativeCheckAt=addMinutesISO(state.world.now,360+Math.floor(seededRandom(state)*360));
+      npc.phone = npc.phone || {contactSaved:false,threadId:`thread_${npc.id}`};
+      if (npc.phone.numberKnown == null) npc.phone.numberKnown = Boolean(npc.phone.contactSaved);
+      if (npc.phone.contactSaved && !state.contacts.some(c=>c.npcId===npc.id)) state.contacts.push({npcId:npc.id,name:npc.name,phone:'saved'});
+      if (!state.messages[npc.phone.threadId]) state.messages[npc.phone.threadId]=[];
+    }
+    return state;
+  }
+
   function ensureMilestone2State(state) {
     state.activityFeed = Array.isArray(state.activityFeed) ? state.activityFeed : [];
     state.ui = state.ui || {};
@@ -482,6 +593,7 @@ button:disabled { opacity: .38; cursor: default; }
       const key=dateKey(d); const id=`work_${key}`; if(state.scheduledEvents.some(e=>e.id===id)) continue;
       state.scheduledEvents.push({ id, type:'work_shift', title:'Work shift', triggerAt:localISOForDate(d,rule.start), deadlineAt:localISOForDate(d,rule.end), locationId:'work', requiresPresence:true, status:'queued', visibility:'known', rule, workedMinutes:0, grossEarned:0 });
     }
+    ensureMilestone4State(state);
     return state;
   }
 
@@ -709,9 +821,20 @@ button:disabled { opacity: .38; cursor: default; }
 
       const present = Object.values(state.npcs).filter(n => n.current.locationId === locId);
       present.slice(0, 2).forEach(n => {
-        suggestions.unshift({ category: 'Talk', text: `Ask ${n.name} how things are going.` });
-        suggestions.push({ category: 'Observe', text: `Pay attention to ${n.name}'s tone and body language.` });
+        const fam=Number(n.relationship&&n.relationship.familiarity||0), aff=Number(n.relationship&&n.relationship.affection||0), resentment=Number(n.relationship&&n.relationship.resentment||0);
+        if(fam>=35 && resentment<30) suggestions.unshift({ category:'Social', text:`Hug ${n.name}.` }); else suggestions.unshift({category:'Social',text:`Greet ${n.name}.`});
+        if(locId==='home'&&fam>=20) suggestions.unshift({ category:'Social', text:`Ask ${n.name} to come sit on the couch.` });
+        if(fam>=20&&resentment<35) suggestions.unshift({ category:'Social', text:`Make a joke with ${n.name}.` });
+        suggestions.push({ category:'Talk', text:`Ask ${n.name} how things are going.` });
+        suggestions.push({ category:'Observe', text:`Pay attention to ${n.name}'s tone and body language.` });
+        if(n.publicSignal&&/uneasy|distant|uncomfortable|upset/i.test(n.publicSignal.text||'')) suggestions.unshift({category:'Social',text:`Ask ${n.name} if something is wrong.`});
+        if(locId==='home'&&fam>=25&&aff>=25) suggestions.push({category:'Together',text:`Play Overwatch with ${n.name} for 90 minutes.`});
       });
+      const cond=state.player.condition||{};
+      if(Number(cond.energy||0)<25) suggestions.unshift({category:'Need',text:'Go to sleep for 8 hours.'});
+      if(Number(cond.hunger||0)>75) suggestions.unshift({category:'Need',text:'Make something to eat.'});
+      if(Number(cond.hydration||100)<35) suggestions.unshift({category:'Need',text:'Drink a glass of water.'});
+      if(Number(cond.bladder||0)>70) suggestions.unshift({category:'Need',text:'Use the restroom.'});
 
       const upcoming = state.scheduledEvents
         .filter(e => e.visibility === 'known' && e.status === 'queued' && asDate(e.triggerAt) > asDate(state.world.now))
@@ -752,12 +875,17 @@ button:disabled { opacity: .38; cursor: default; }
     classify(clause, state) {
       const lower = clause.toLowerCase();
       if (/\bteleport\b|\bmateriali[sz]e\b|\bwarp\b/.test(lower)) return { type: 'impossible', raw: clause, reason: 'That action is not physically possible in this realistic world.' };
-      if (/\b(fly|levitate)\b/.test(lower) && !/flight|plane|airport/.test(lower)) return { type: 'impossible', raw: clause, reason: 'Jonathan cannot literally fly or levitate.' };
+      const framedAsImagined=/\b(imagine|pretend|dream|daydream|draw|write|fantasi[sz]e)\b/.test(lower);
+      if (!framedAsImagined && /(?:goldfish|fish|dog|cat|animal).{0,40}\bgrows? wings\b|\bgrows? wings\b.{0,40}\b(?:flies|fly)\b/.test(lower)) return { type:'impossible', raw:clause, reason:'That statement proposes an impossible biological change in this realistic world, so it does not become an objective fact.' };
+      if (/\b(fly|levitate)\b/.test(lower) && !framedAsImagined && !/flight|plane|airport/.test(lower) && /^\s*(?:i|jonathan)\b/.test(lower)) return { type: 'impossible', raw: clause, reason: 'Jonathan cannot literally fly or levitate.' };
+      if (/\border\b/.test(lower) && /\b(pizza|takeout|delivery|food)\b/.test(lower)) return this.parseFoodOrder(clause, state);
+      if (/\b(use|go to|use the)\b.*\b(restroom|bathroom|toilet)\b|\bpee\b|\burinate\b/.test(lower)) return {type:'restroom',raw:clause};
+      if (/\badd\b.*\bcontacts?\b/.test(lower)) { const npc=this.findNPC(clause,state); return {type:'add_contact',raw:clause,npcId:npc?npc.id:null}; }
       if (/\btext\b|\bmessage\b|\bsend .* message\b/.test(lower)) return this.parseText(clause, state);
       if (/\bcall\b/.test(lower)) return this.parseCall(clause, state);
       if (/\bdrive\b|\bhead to\b|\bgo to\b|\bwalk to\b/.test(lower)) return this.parseTravel(clause, state);
       if (/\bgrab\b|\bpick up\b|\btake my\b/.test(lower)) return this.parseGrab(clause);
-      if (/\b(shower)\b/.test(lower)) return { type: /turn .*shower.*on/.test(lower) ? 'toggle_shower' : 'shower', raw: clause };
+      if (/\b(shower)\b/.test(lower)) { if(/(?:turn|shut).*shower.*off/.test(lower)) return {type:'toggle_shower',raw:clause,state:false}; if(/turn .*shower.*on/.test(lower)) return {type:'toggle_shower',raw:clause,state:true}; return {type:'shower',raw:clause}; }
       if (/\bsleep\b|\bgo to bed\b|\bnap\b/.test(lower)) return this.parseSleep(clause, state);
       if (/\bwait\b|\bdo nothing\b|\bpass the time\b/.test(lower)) return this.parseWait(clause);
       if (/\bbuy\b|\bpay\b|\bspend\b/.test(lower)) return this.parsePurchase(clause);
@@ -803,7 +931,7 @@ button:disabled { opacity: .38; cursor: default; }
       const aliases = [
         ['home', ['home', 'apartment']], ['work', ['work', 'office', 'orthodontic']], ['maya_home', ["maya's", 'maya']],
         ['daniel_home', ["daniel's", 'daniel']], ['grocery', ['grocery', 'market']], ['coffee', ['coffee', 'juniper']],
-        ['park', ['park', 'creekside']], ['auto_shop', ['auto shop', 'mechanic', 'valley auto']], ['dad_home', ["dad's", 'dad home']],
+        ['park', ['park', 'creekside']], ['auto_shop', ['auto shop', 'mechanic', 'valley auto']], ['dad_home', ["dad's", 'dad home']], ['lax', ['lax','los angeles international','airport']],
       ];
       for (const [id, words] of aliases) if (words.some(w => lower.includes(w))) { destinationId = id; break; }
       return { type: 'travel', raw: clause, destinationId, mode: lower.includes('walk') ? 'walk' : 'drive' };
@@ -862,6 +990,14 @@ button:disabled { opacity: .38; cursor: default; }
       return { type: 'purchase', raw: clause, amount, useCash: /\bcash\b/.test(lower) };
     }
 
+    parseFoodOrder(clause, state) {
+      const lower=clause.toLowerCase();
+      const m=clause.match(/\$\s*(\d+(?:\.\d{1,2})?)/);
+      const item=/pizza/.test(lower)?'pizza':/takeout/.test(lower)?'takeout':'food delivery';
+      const amount=m?Number(m[1]):item==='pizza'?24:28;
+      return {type:'order_food',raw:clause,item,amount};
+    }
+
     parsePromise(clause, state) {
       const npc = this.findNPC(clause, state);
       const lower = clause.toLowerCase();
@@ -892,7 +1028,7 @@ button:disabled { opacity: .38; cursor: default; }
       this.state.player.condition.statusEffects = Array.isArray(this.state.player.condition.statusEffects) ? this.state.player.condition.statusEffects : [];
       this.state.player.condition.injuryNote = this.state.player.condition.injuryNote || null;
       this.state.ui.lastSimulationNotice = this.state.ui.lastSimulationNotice || '';
-      this.state.meta.provider = 'milestone3-hybrid-v9';
+      this.state.meta.provider = 'milestone4-causal-hybrid-v1';
       if (!this.state.ui.lastNarrative) {
         this.state.ui.lastNarrative = this.provider.generateScene(this.state, null);
         this.state.ui.suggestions = this.provider.generateSuggestions(this.state);
@@ -1050,6 +1186,7 @@ button:disabled { opacity: .38; cursor: default; }
         if (item.locationId !== s.world.playerLocationId && !s.player.inventory.includes(item.id)) return { ok: false, reason: `${item.name} is not here.` };
       }
       if (['work','work_lunch','work_task'].includes(action.type)) {
+        if (Number(s.player.condition.energy||0) <= 8 || Number(s.player.condition.hunger||0) >= 98 || Number(s.player.condition.hydration||0) <= 5) return {ok:false,reason:'Your current physical condition is too depleted to complete a normal work shift safely. Eat, drink, and rest first.'};
         if (s.world.playerLocationId !== s.player.employment.locationId) return { ok:false, reason:'You need to be at the office to do that.' };
         const shift=this.todaysWorkShift(); if(!shift) return {ok:false,reason:'You are not scheduled to work today.'};
         const now=asDate(s.world.now), start=asDate(shift.triggerAt), end=asDate(shift.deadlineAt), rule=shift.rule||{};
@@ -1062,6 +1199,8 @@ button:disabled { opacity: .38; cursor: default; }
         if (!action.amount || action.amount<=0) return {ok:false,reason:'The cannabis purchase needs a valid price.'};
         if (s.player.money.checking+s.player.money.cash<action.amount) return {ok:false,reason:`You do not have enough available money for ${formatMoney(action.amount)}.`};
       }
+      if (action.type === 'order_food') { if (!action.amount || action.amount<=0) return {ok:false,reason:'The order needs a plausible price.'}; if (s.player.money.checking+s.player.money.cash<action.amount) return {ok:false,reason:`You do not have enough available money for ${formatMoney(action.amount)}.`}; }
+      if (action.type === 'add_contact') { if(!action.npcId || !s.npcs[action.npcId]) return {ok:false,reason:'It is not clear whose contact you want to add.'}; if(!s.npcs[action.npcId].phone.numberKnown) return {ok:false,reason:`You do not know ${s.npcs[action.npcId].name}’s number yet.`}; }
       if (action.type === 'purchase') {
         if (!action.amount || action.amount <= 0) return { ok: false, reason: 'The purchase needs a plausible price before it can be resolved.' };
         if (s.player.money.checking + s.player.money.cash < action.amount) return { ok: false, reason: `You do not have enough available money for ${formatMoney(action.amount)}.` };
@@ -1103,7 +1242,11 @@ button:disabled { opacity: .38; cursor: default; }
           const resolved = this.resolveAction(action);
           results.push(resolved);
           if (resolved && resolved.narrative) this.addActivity(resolved.ok===false?'blocked':'action', String(resolved.narrative).slice(0,260));
+          state.world.currentActivity=action.type; state.world.lastActionStartedAt=state.world.now;
+          const coPresent=Object.values(state.npcs).filter(n=>n.current.locationId===state.world.playerLocationId && n.current.scheduleOverride);
+          if(resolved&&resolved.ok!==false && coPresent.length && /hang|game|overwatch|couch|talk|eat|watch|joke|hug/i.test(action.raw||'')) coPresent.forEach(n=>this.recordInteraction(n.id,'shared activity',.35,Math.max(5,resolved.minutes||5),action.raw));
           if (resolved.minutes > 0) visibleEvents.push(...this.advanceTime(resolved.minutes).visibleEvents);
+          state.world.currentActivity=null;
         }
       }
 
@@ -1124,15 +1267,18 @@ button:disabled { opacity: .38; cursor: default; }
         case 'call': return this.resolveCall(action);
         case 'travel': return this.resolveTravel(action);
         case 'grab': return this.resolveGrab(action);
-        case 'toggle_shower': this.log('action', 'Shower turned on.'); return { ok: true, type: action.type, minutes: 1, narrative: 'You turn the shower on. Water begins running behind the bathroom door.' };
-        case 'shower': s.player.condition.stress = Math.max(0, s.player.condition.stress - 4); return { ok: true, type: action.type, minutes: 15, narrative: 'You take a shower and get dressed again.' };
+        case 'toggle_shower': { const on=action.state!==false; this.setEnvironment(s.world.playerLocationId,{waterFlow:on},'player action'); this.log('action', `Shower turned ${on?'on':'off'}.`); return { ok:true,type:action.type,minutes:1,narrative:on?'You turn the shower on. Water begins running behind the bathroom door.':'You turn the shower off. The water stops running.' }; }
+        case 'shower': s.player.condition.stress = Math.max(0, s.player.condition.stress - 4); s.player.condition.hygiene=Math.min(100,Number(s.player.condition.hygiene||0)+35); return { ok: true, type: action.type, minutes: 15, narrative: 'You take a shower and get dressed again.' };
         case 'sleep': return this.resolveSleep(action);
         case 'wait': return { ok: true, type: action.type, minutes: action.minutes, narrative: action.minutes >= 120 ? 'You let a few quiet hours pass.' : 'You let some time pass without doing much.' };
         case 'purchase': return this.resolvePurchase(action);
+        case 'order_food': return this.resolveFoodOrder(action);
+        case 'restroom': return this.resolveRestroom(action);
+        case 'add_contact': return this.resolveAddContact(action);
         case 'cannabis_purchase': return this.resolveCannabisPurchase(action);
         case 'work_lunch': return this.resolveWorkLunch(action);
         case 'work_task': return this.resolveWorkTask(action);
-        case 'eat': s.player.condition.hunger = Math.max(5, s.player.condition.hunger - 42); return { ok: true, type: action.type, minutes: 25, narrative: 'You make something simple to eat and finish the meal.' };
+        case 'eat': s.player.condition.hunger = Math.max(5, s.player.condition.hunger - 42); s.player.condition.energy=Math.min(100,s.player.condition.energy+5); s.player.condition.lastAteAt=s.world.now; s.player.condition.recentIntake.push({at:s.world.now,type:'meal',size:'normal'}); return { ok: true, type: action.type, minutes: 25, narrative: 'You make something simple to eat and finish the meal.' };
         case 'work': return this.resolveWork(action);
         case 'promise': return this.resolvePromise(action);
         case 'observe': return this.resolveObserve(action);
@@ -1151,6 +1297,7 @@ button:disabled { opacity: .38; cursor: default; }
         body: action.body, read: true, topic: analysis.topic, intent: analysis.intent,
       };
       s.messages[thread].push(msg);
+      npc.relationshipDynamics=npc.relationshipDynamics||{}; npc.relationshipDynamics.lastPlayerInitiatedAt=s.world.now;
       this.updateDialogueThread(thread, { topic: analysis.topic, lastPlayerIntent: analysis.intent, lastPlayerMessageId: msg.id });
       this.log('message', `Message sent to ${npc.name}. Topic=${analysis.topic}; intent=${analysis.intent}.`);
 
@@ -1277,10 +1424,19 @@ button:disabled { opacity: .38; cursor: default; }
 
     replyDelayMinutes(npc, analysis) {
       const s = this.state;
-      let base = 2 + Math.floor(seededRandom(s) * 10);
-      if (npc.current.activity === 'working') base += 8 + Math.floor(seededRandom(s) * 18);
+      const activity=String(npc.current&&npc.current.activity||'').toLowerCase();
+      let base = 2 + Math.floor(seededRandom(s) * 9);
+      if (/sleep/.test(activity)) base += 240 + Math.floor(seededRandom(s) * 240);
+      else if (/driv|commut/.test(activity)) base += 20 + Math.floor(seededRandom(s) * 35);
+      else if (/work/.test(activity)) base += 10 + Math.floor(seededRandom(s) * 30);
+      else if (/gym|work out|meeting|errand|shopping|friend|coffee/.test(activity)) base += 6 + Math.floor(seededRandom(s) * 18);
+      const d=npc.relationshipDynamics||{};
+      const warmth=(Number(npc.relationship&&npc.relationship.affection||0)+Number(npc.relationship&&npc.relationship.familiarity||0))/2;
+      if(warmth>=65 && Number(d.momentum||0)>1) base=Math.max(1,base-3);
+      if(Number(d.unansweredMeaningfulMessages||0)>=2 || Number(d.momentum||0)<-2) base+=8+Math.floor(seededRandom(s)*18);
       if (analysis.intent === 'repair' || analysis.intent === 'ask_explain') base = Math.max(2, base - 2);
-      return base;
+      if (analysis.intent === 'request' || analysis.intent === 'ask_wellbeing') base = Math.max(1, base - 1);
+      return Math.max(1,Math.min(720,base));
     }
 
     chooseReply(options) {
@@ -1418,13 +1574,13 @@ button:disabled { opacity: .38; cursor: default; }
     resolveTravel(action) {
       const s = this.state; const from = s.world.playerLocationId; const to = action.destinationId;
       if (from === to) return { ok: true, type: action.type, minutes: 1, narrative: `You are already at ${s.locations[to].name}.` };
-      let minutes = (s.locations[from].travel && s.locations[from].travel[to]) || (s.locations[to].travel && s.locations[to].travel[from]) || 20;
-      if (action.mode === 'walk') minutes = Math.max(8, minutes * 3);
+      const minutes=this.estimateTravelMinutes(from,to,action.mode);
       s.world.playerLocationId = to;
       const car = s.player.possessions.find(p => p.id === 'car');
       if (action.mode === 'drive' && car) car.locationId = to;
       this.checkAttendanceOnArrival(to);
       this.log('location', `Player moved from ${from} to ${to}.`);
+      this.recordCausalChange('movement',`Jonathan traveled from ${from} to ${to}.`,'travel',{from,to,mode:action.mode,minutes});
       return { ok: true, type: action.type, minutes, narrative: `${action.mode === 'walk' ? 'You walk' : 'You drive'} to ${s.locations[to].name}. The trip takes about ${minutes} minutes.` };
     }
 
@@ -1437,10 +1593,21 @@ button:disabled { opacity: .38; cursor: default; }
     }
 
     resolveSleep(action) {
-      const s = this.state;
-      s.player.condition.energy = Math.min(100, s.player.condition.energy + Math.round(action.minutes / 9));
-      s.player.condition.hunger = Math.min(100, s.player.condition.hunger + Math.round(action.minutes / 18));
-      return { ok: true, type: action.type, minutes: action.minutes, narrative: action.minutes >= 180 ? 'You go to sleep.' : 'You lie down and sleep for a while.' };
+      const s = this.state, c=s.player.condition;
+      const hours=Math.max(0,Number(action.minutes||0)/60);
+      c.energy = Math.min(100, Number(c.energy||0) + Math.round(action.minutes / 8.5));
+      c.hunger = Math.min(100, Number(c.hunger||0) + Math.round(action.minutes / 20));
+      c.hydration = Math.max(0, Number(c.hydration||0) - hours*2.2);
+      c.bladder = Math.min(100, Number(c.bladder||0) + hours*5);
+      c.hoursSleptLast24 = Math.min(12, hours);
+      const target=8; c.sleepDebtHours=Math.max(0,Number(c.sleepDebtHours||0)+Math.max(0,target-hours));
+      if(hours>=7) c.sleepDebtHours=Math.max(0,c.sleepDebtHours-(hours-7)*2);
+      c.awakeMinutes=0; c.lastSleepAt=s.world.now;
+      c.focus=Math.max(0,Math.min(100,70-Math.max(0,c.sleepDebtHours)*5));
+      c.mood=Math.max(0,Math.min(100,Number(c.mood||60)+(hours>=7?5:hours<=3?-8:0)));
+      c.sleepHistory.push({at:s.world.now,hours}); if(c.sleepHistory.length>30)c.sleepHistory.splice(0,c.sleepHistory.length-30);
+      if(hours<=3){ this.feedback('Severely sleep-deprived','warn'); this.upsertUrgentCondition('severe_sleep_debt','Severe exhaustion may interfere with work and driving.','high',()=>Number(c.sleepDebtHours||0)<6); }
+      return { ok: true, type: action.type, minutes: action.minutes, narrative: hours >= 3 ? `You sleep for about ${hours.toFixed(hours%1?1:0)} hours.` : 'You get only a short stretch of sleep.' };
     }
 
     resolvePurchase(action) {
@@ -1568,14 +1735,12 @@ button:disabled { opacity: .38; cursor: default; }
     }
 
     resolveGeneric(action) {
-      const lower = action.raw.toLowerCase();
-      if (/jump .*roof|moving truck/.test(lower)) {
-        return { ok: false, type: action.type, minutes: 1, narrative: 'That would be extremely dangerous under ordinary conditions. You do not have a safe, plausible way to carry it out as stated.' };
-      }
-      return {
-        ok: true, type: action.type, minutes: 4,
-        narrative: `You try to ${action.raw.replace(/^i\s+/i, '')}.\n\nSimulation note: this free-form action did not change tracked state because the AI action interpreter was unavailable or this feature is not implemented in the local fallback.`
-      };
+      const lower=action.raw.toLowerCase();
+      if (/jump .*roof|moving truck/.test(lower)) return {ok:false,type:action.type,minutes:1,narrative:'That would be extremely dangerous under ordinary conditions. You do not have a safe, plausible way to carry it out as stated.'};
+      const applied=this.localMilestone4Effects(action.raw); const mins=this.estimateActionDuration(action.raw)||4;
+      if(applied.length) return {ok:true,type:action.type,minutes:mins,narrative:`You ${action.raw.replace(/^i\s+/i,'')}. The simulation records the resulting world-state changes rather than treating them as narration only.`};
+      if(/\b(imagine|pretend|daydream|dream)\b/.test(lower)) return {ok:true,type:action.type,minutes:Math.min(15,mins),narrative:'You imagine it. Nothing in objective world state changes.'};
+      return {ok:true,type:action.type,minutes:mins,narrative:`You try to ${action.raw.replace(/^i\s+/i,'')}.\n\nSimulation note: this action was understood locally, but no safe generic state mutation could be inferred without the AI world-effect contract.`};
     }
 
     activeStatusEffects() {
@@ -1585,6 +1750,8 @@ button:disabled { opacity: .38; cursor: default; }
     }
 
     hasDrivingImpairment() {
+      const c=this.state.player.condition||{};
+      if(Number(c.energy||0)<=8 || Number(c.sleepDebtHours||0)>=10 || Number(c.focus||100)<=15)return true;
       return this.activeStatusEffects().some(x => x.impairsDriving === true || (x.modifiers && Number(x.modifiers.driving || 0) <= -10));
     }
 
@@ -1629,16 +1796,23 @@ button:disabled { opacity: .38; cursor: default; }
         return { state: s, results: [result], visibleEvents, narrative: s.ui.lastNarrative, suggestions: s.ui.suggestions };
       }
 
-      // Core condition deltas. Positive hunger means hungrier; positive stress means more stressed.
+      // Core condition deltas. Milestone 4 allows the AI to propose any tracked need, but the engine clamps every change.
       const condition = effects.condition || {};
-      for (const key of ['energy', 'hunger', 'stress']) {
+      const conditionRules = {
+        energy:[0,100,30], hunger:[0,100,30], stress:[0,100,30], hydration:[0,100,30], health:[0,100,20],
+        pain:[0,100,25], hygiene:[0,100,35], bladder:[0,100,40], socialConnection:[0,100,25], mood:[0,100,25],
+        focus:[0,100,25], fitness:[0,100,4], intimacyNeed:[0,100,30], security:[0,100,20], sleepDebtHours:[0,36,12]
+      };
+      for (const [key, rule] of Object.entries(conditionRules)) {
         if (condition[key] == null) continue;
-        const delta = clamp(condition[key], -30, 30);
+        const delta = clamp(condition[key], -rule[2], rule[2]);
         if (!delta) continue;
-        s.player.condition[key] = clamp(Number(s.player.condition[key] || 0) + delta, 0, 100);
+        s.player.condition[key] = clamp(Number(s.player.condition[key] || 0) + delta, rule[0], rule[1]);
         changes += 1;
         this.log('condition', `${key} ${delta >= 0 ? '+' : ''}${delta} from free action.`, true);
-        const labels={energy:'Energy',hunger:'Hunger',stress:'Stress'}; this.feedback(`${labels[key]} ${delta>0?'increased':'decreased'}`);
+        if (['energy','hunger','stress','hydration'].includes(key)) {
+          const labels={energy:'Energy',hunger:'Hunger',stress:'Stress',hydration:'Hydration'}; this.feedback(`${labels[key]} ${delta>0?'increased':'decreased'}`);
+        }
       }
 
       // Temporary effects such as high, caffeinated, sore, buzzed, focused, etc.
@@ -1773,10 +1947,24 @@ button:disabled { opacity: .38; cursor: default; }
       if (Array.isArray(resolution && resolution.unsupported)) {
         for (const item of resolution.unsupported.slice(0, 6)) if (item) notes.push(String(item).slice(0, 240));
       }
+
+      // Apply proposed persistent world mutations before deciding whether the action changed anything.
+      const m4=this.applyMilestone4Resolution(raw,resolution); changes+=m4.accepted;
+      if(m4.rejected){
+        const rejected=(s.ui.lastWorldEffects&&s.ui.lastWorldEffects.rejected||[]).slice(0,4);
+        for(const item of rejected){ if(item&&item.reason) notes.push(`World-state proposal rejected: ${String(item.reason).slice(0,220)}`); }
+        if(!changes) narrative=`You attempt to ${String(raw).replace(/^i\s+/i,'')}, but the simulation does not establish the rejected claim as objective world state.`;
+      }
       if (!changes && resolution && resolution.no_state_change_reason) notes.push(String(resolution.no_state_change_reason).slice(0, 300));
       if (!changes && !notes.length) notes.push('I understood the free-form action, but this build has no implemented state effect for it yet, so nothing tracked was changed.');
       if (!changes) this.feedback('No tracked state changed','warn');
 
+      // Sustained co-present social activity should build familiarity even if the model omitted a record_interaction effect.
+      const alreadyRecorded=(s.ui.lastWorldEffects&&s.ui.lastWorldEffects.accepted||[]).some(x=>x&&x.op==='record_interaction');
+      if(!alreadyRecorded && duration>=15 && /hang|game|overwatch|couch|talk|eat|watch|joke|hug|walk together|spend time/i.test(raw)){
+        const present=Object.values(s.npcs).filter(n=>n.current.locationId===s.world.playerLocationId);
+        for(const n of present)this.recordInteraction(n.id,'shared activity',.25,duration,'AI free action');
+      }
       const visibleEvents = this.advanceTime(duration).visibleEvents;
       this.maybeScheduleDealerCheckIn();
       this.updateSituations();
@@ -1803,51 +1991,66 @@ button:disabled { opacity: .38; cursor: default; }
       s.world.now = to;
       this.expireStatusEffects();
       this.updatePlayerNeeds(minutes);
+      this.processCausality(from,to,minutes);
+      this.processRelationshipDrift(from,to);
+      const commitmentEvents=this.processCommitments(from,to);
       this.simulateNPCs(from, to);
-      const visibleEvents = this.processScheduledEvents(from, to);
+      const visibleEvents = [...commitmentEvents, ...this.processScheduledEvents(from, to)];
+      this.syncUrgentConditions();
       this.log('time', `Advanced ${minutes} minute${minutes === 1 ? '' : 's'} to ${to}.`); if(minutes>=5) this.feedback(`${minutes>=60?`${Math.floor(minutes/60)}h ${minutes%60}m`:`${minutes} min`} passed`);
       return { from, to, visibleEvents };
     }
 
     updatePlayerNeeds(minutes) {
-      const c = this.state.player.condition;
-      c.hunger = Math.min(100, c.hunger + minutes / 55);
-      if (minutes > 90) c.energy = Math.max(0, c.energy - minutes / 180);
-      const statuses = this.activeStatusEffects();
-      c.description = statuses.length ? statuses.map(x => x.label).join(', ') : c.energy < 25 ? 'Tired' : c.hunger > 75 ? 'Hungry' : c.injured ? 'Injured' : 'Fine';
+      const c = this.state.player.condition, dt=Math.max(0,Number(minutes)||0);
+      if (this.state.world.currentActivity !== 'sleep') {
+        const beforeAwake=Math.max(0,Number(c.awakeMinutes||0)), afterAwake=beforeAwake+dt;
+        const beforeExcess=Math.max(0,beforeAwake-16*60), afterExcess=Math.max(0,afterAwake-16*60);
+        c.awakeMinutes=afterAwake;
+        c.energy = Math.max(0, Number(c.energy||0) - dt / 50);
+        c.sleepDebtHours = Math.min(36, Number(c.sleepDebtHours||0) + Math.max(0,afterExcess-beforeExcess)/60);
+      }
+      this.processNeedConsequences(dt);
     }
 
     simulateNPCs(from, to) {
       const s = this.state;
       Object.values(s.npcs).forEach(npc => {
-        const oldLoc = npc.current.locationId;
-        const oldActivity = npc.current.activity;
+        const oldLoc = npc.current.locationId, oldActivity = npc.current.activity;
+        const ov=npc.current.scheduleOverride;
+        if(ov && (!ov.until || asDate(ov.until)>asDate(to))){ npc.current.locationId=ov.locationId; npc.current.activity=ov.activity; return; }
+        if(ov && ov.until && asDate(ov.until)<=asDate(to)){ this.clearNPCOverride(npc.id,'override duration completed'); const c=s.commitments.find(x=>x.id===ov.commitmentId); if(c&&c.status==='active'){c.status='completed';c.actualDepartureAt=ov.until;} }
         const status = this.scheduleStateForNPC(npc, to);
-        npc.current.locationId = status.locationId;
-        npc.current.activity = status.activity;
+        npc.current.locationId = status.locationId; npc.current.activity = status.activity;
         if (oldLoc !== status.locationId || oldActivity !== status.activity) this.log('npc', `${npc.name} background state: ${status.activity} at ${status.locationId}.`, true);
       });
     }
 
     scheduleStateForNPC(npc, iso) {
-      const d = asDate(iso); const day = d.getDay(); const mins = d.getHours() * 60 + d.getMinutes(); const weekday = day >= 1 && day <= 5;
-      if (npc.id === 'maya') {
-        if (weekday && mins >= 8 * 60 + 30 && mins < 17 * 60 + 30) return { locationId: 'work', activity: 'working' };
-        if ((day === 2 || day === 4) && mins >= 18 * 60 + 15 && mins < 19 * 60 + 15) return { locationId: 'gym', activity: 'working out' };
-        if (!weekday && mins >= 11 * 60 && mins < 13 * 60) return { locationId: 'coffee', activity: 'out for errands' };
-        return { locationId: 'maya_home', activity: 'at home' };
+      const d=asDate(iso),day=d.getDay(),mins=d.getHours()*60+d.getMinutes(),weekday=day>=1&&day<=5;
+      const key=Number(`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}`)+String(npc.id).split('').reduce((a,c)=>a+c.charCodeAt(0),0);
+      const variant=key%7;
+      if(npc.id==='maya'){
+        if(weekday&&mins>=8*60+30&&mins<17*60+30+(variant===2?45:0))return{locationId:'work',activity:variant===2?'working late':'working'};
+        if(weekday&&mins>=18*60&&mins<20*60){ if(variant===0||variant===3)return{locationId:'gym',activity:'working out'}; if(variant===1)return{locationId:'grocery',activity:'running errands'}; if(variant===4)return{locationId:'coffee',activity:'meeting someone for coffee'}; }
+        if(!weekday&&mins>=10*60&&mins<13*60&&variant%2===0)return{locationId:'coffee',activity:'out for coffee and errands'};
+        if(mins>=22*60+30||mins<7*60)return{locationId:'maya_home',activity:'sleeping'};
+        return{locationId:'maya_home',activity:variant===5?'doing chores':'relaxing at home'};
       }
-      if (npc.id === 'daniel') {
-        if (weekday && mins >= 9 * 60 && mins < 17 * 60) return { locationId: 'work', activity: 'working' };
-        if (weekday && mins >= 18 * 60 + 30 && mins < 20 * 60) return { locationId: 'gym', activity: 'working out' };
-        return { locationId: 'daniel_home', activity: 'at home' };
+      if(npc.id==='daniel'){
+        if(weekday&&mins>=9*60&&mins<17*60+(variant===1?30:0))return{locationId:'work',activity:variant===1?'finishing work late':'working'};
+        if(weekday&&mins>=17*60+30&&mins<21*60){ if(variant===0||variant===3)return{locationId:'gym',activity:'working out'}; if(variant===1)return{locationId:'grocery',activity:'picking up food'}; if(variant===2)return{locationId:'coffee',activity:'meeting a friend'}; if(variant===4)return{locationId:'park',activity:'out for a walk'}; return{locationId:'daniel_home',activity:'gaming at home'}; }
+        if(!weekday&&mins>=11*60&&mins<15*60){ if(variant<3)return{locationId:'gym',activity:'working out'}; if(variant<5)return{locationId:'coffee',activity:'grabbing food'}; }
+        if(mins>=23*60||mins<7*60+30)return{locationId:'daniel_home',activity:'sleeping'};
+        return{locationId:'daniel_home',activity:variant===6?'doing chores':'at home'};
       }
-      if (npc.id === 'eli') return { locationId:'unknown', activity:'going about the day' };
-      if (npc.id === 'dad') {
-        if (weekday && mins >= 8 * 60 && mins < 16 * 60 + 30) return { locationId: 'dad_studio', activity: 'working' };
-        return { locationId: 'dad_home', activity: 'at home' };
+      if(npc.id==='dad'){
+        if(weekday&&mins>=8*60&&mins<16*60+30)return{locationId:'dad_studio',activity:'working'};
+        if(mins>=22*60||mins<6*60+30)return{locationId:'dad_home',activity:'sleeping'};
+        return{locationId:'dad_home',activity:variant%3===0?'working on a home project':'at home'};
       }
-      return { locationId: npc.homeLocationId, activity: 'at home' };
+      if(npc.id==='eli')return{locationId:'unknown',activity:variant%2?'handling errands':'going about the day'};
+      return{locationId:npc.homeLocationId||'unknown',activity:'at home'};
     }
 
     processScheduledEvents(from, to) {
@@ -1857,6 +2060,8 @@ button:disabled { opacity: .38; cursor: default; }
       for (const event of due) {
         if (event.type === 'payroll') {
           const pe=this.processPayrollEvent(event); if(pe) visible.push(pe);
+        } else if (event.type === 'delivery') {
+          const amount=Number(event.payload&&event.payload.amount||0); if(s.player.money.checking+s.player.money.cash<amount){event.status='failed';visible.push({type:'delivery',text:`${event.title} could not be completed because the payment was unavailable.`});this.addActivity('delivery',`${event.title} failed: payment unavailable.`);} else { if(s.player.money.checking>=amount){s.player.money.checking=Math.round((s.player.money.checking-amount)*100)/100;s.bankTransactions.push({id:makeId('tx',s),at:event.triggerAt,amount,direction:'out',description:event.payload.description||'Delivery',balanceAfter:s.player.money.checking});} else s.player.money.cash=Math.round((s.player.money.cash-amount)*100)/100; const cr=this.createEntity(event.payload.entitySpec,'delivery'); if(cr.ok){cr.entity.state='available';event.status='completed';visible.push({type:'delivery',text:`${cr.entity.name} arrives.`});this.addActivity('delivery',`${cr.entity.name} delivered and added to the world.`);this.feedback(`${cr.entity.name} arrived`);} else {event.status='failed';visible.push({type:'delivery',text:`The delivery arrived, but the item could not be represented: ${cr.reason}`});} }
         } else if (event.type === 'dealer_checkin') {
           const npc=s.npcs.eli; const thread=npc.phone.threadId;
           s.messages[thread].push({id:makeId('msg',s),at:event.triggerAt,senderId:'eli',recipientId:'jonathan',body:'You good for a bit or need me to set something aside?',read:false,topic:'cannabis',intent:'check_in'});
@@ -1888,17 +2093,29 @@ button:disabled { opacity: .38; cursor: default; }
             this.addMemory(npc.id, { event: memoryEvent, emotionalValence: 0, emotionalStrength: 0.12, importance: 0.28, decay: 'slow', private: false, secret: false });
           }
           if (event.payload.social) this.applyNPCSocialResult(npc.id,event.payload.social,'text conversation');
+          if (Array.isArray(event.payload.worldEffects) && event.payload.worldEffects.length) this.applyMilestone4Resolution('',{world_effects:event.payload.worldEffects,duration_minutes:1});
           event.status = 'completed';
           visible.push({ type: 'message', text: `A message from ${npc.name} arrives.` });
           this.addActivity('message',`Message from ${npc.name}: ${String(incomingBody).slice(0,120)}${String(incomingBody).length>120?'…':''}`);
           this.log('event', `Incoming contextual message from ${npc.name}.`);
+        } else if (event.type === 'npc_initiated_message') {
+          const npc=s.npcs[event.npcId];
+          if(!npc||!npc.phone){event.status='cancelled';continue;}
+          const thread=npc.phone.threadId; s.messages[thread]=s.messages[thread]||[];
+          const d=npc.relationshipDynamics||{}, warm=Number(npc.relationship.affection||0)+Number(npc.relationship.familiarity||0)+Number(d.momentum||0)*3;
+          let body;
+          if(npc.id==='daniel') body=warm>=110?this.chooseReply(['You around later?','You trying to game or grab food later?','What are you up to tonight?']):this.chooseReply(['What’s up?','You doing anything later?','How’s your day going?']);
+          else if(npc.id==='maya') body=warm>=110?this.chooseReply(['How are you doing? I feel like we haven’t caught up.','Are you free later?','How’s your day going?']):this.chooseReply(['Hey, how’s your day going?','You surviving today?','What are you up to?']);
+          else if(npc.id==='dad') body=this.chooseReply(['Hey, how are things going?','Give me a call when you get a chance.','How’s your week going?']);
+          else body='Hey, how’s it going?';
+          s.messages[thread].push({id:makeId('msg',s),at:event.triggerAt,senderId:npc.id,recipientId:'jonathan',body,read:false,topic:'general',intent:'initiate'});
+          d.lastNpcInitiatedAt=event.triggerAt; npc.relationshipDynamics=d; event.status='completed';
+          visible.push({type:'message',text:`A message from ${npc.name} arrives.`}); this.addActivity('message',`${npc.name} reached out.`); this.log('event',`${npc.name} initiated contact based on current relationship dynamics.`,true);
         } else if (event.type === 'npc_call') {
-          const npc = s.npcs[event.npcId];
-          const thread = npc.phone.threadId;
-          s.messages[thread].push({ id: makeId('msg', s), at: event.triggerAt, senderId: npc.id, recipientId: 'jonathan', body: 'Tried calling. Nothing urgent—call me when you have a minute.', read: false });
-          event.status = 'completed';
-          visible.push({ type: 'call', text: `${npc.name} tries to call. If you do not answer in the moment, a short message follows.` });
-          this.log('event', `${npc.name} call event processed.`);
+          const npc=s.npcs[event.npcId]; const busy=['sleep','work','work_task','travel'].includes(s.world.currentActivity); const call={id:makeId('call',s),npcId:npc.id,at:event.triggerAt,status:busy?'missed':'ringing',reason:event.payload&&event.payload.reason||'call'}; s.phoneCalls.unshift(call); if(s.phoneCalls.length>80)s.phoneCalls.length=80;
+          if(busy){ const thread=npc.phone.threadId; s.messages[thread].push({id:makeId('msg',s),at:event.triggerAt,senderId:npc.id,recipientId:'jonathan',body:'Tried calling. Call me when you get a chance.',read:false}); event.status='completed'; const cid=event.payload&&event.payload.commitmentId; if(cid){const c=s.commitments.find(x=>x.id===cid);if(c){c.status='completed';c.actualDepartureAt=event.triggerAt;}} visible.push({type:'call',text:`You miss a call from ${npc.name}.`}); this.addActivity('call',`Missed call from ${npc.name}.`); }
+          else { event.status='ringing'; s.ui.incomingCall={callId:call.id,eventId:event.id,npcId:npc.id,startedAt:event.triggerAt,commitmentId:event.payload&&event.payload.commitmentId||null}; visible.push({type:'call',text:`${npc.name} is calling.`}); this.addActivity('call',`Incoming call from ${npc.name}.`); }
+          this.log('event',`${npc.name} call event processed.`);
         } else if (event.type === 'npc_private') {
           this.processPrivateNPCEvent(event);
           event.status = 'completed';
@@ -2014,6 +2231,349 @@ button:disabled { opacity: .38; cursor: default; }
         this.log('relationship', `${npc.name}: ${applied.join(', ')}. Reason: ${reason}`, true);
         const cue=this.relationshipCue(npc,changes); if(cue){ npc.publicSignal={text:cue,at:this.state.world.now}; this.feedback(cue); this.addActivity('relationship',cue); }
       }
+    }
+
+    recordCausalChange(kind, text, source='simulation', details={}) {
+      const s=this.state; s.causalHistory=Array.isArray(s.causalHistory)?s.causalHistory:[];
+      s.causalHistory.push({id:makeId('cause',s),at:s.world.now,kind:String(kind),text:String(text).slice(0,280),source:String(source),details:clone(details||{})});
+      if(s.causalHistory.length>180)s.causalHistory.splice(0,s.causalHistory.length-180);
+    }
+
+    getEntity(idOrName) {
+      const s=this.state, q=String(idOrName||'').toLowerCase();
+      if(s.entities[q]) return s.entities[q];
+      return Object.values(s.entities||{}).find(e=>e.id===idOrName || String(e.name||'').toLowerCase()===q || String(e.name||'').toLowerCase().includes(q))||null;
+    }
+
+    createEntity(spec, source='simulation') {
+      const s=this.state; if(!spec||!spec.name) return {ok:false,reason:'Entity is missing a name.'};
+      const src=spec.source||{type:source}; const srcType=String(src.type||source||'').toLowerCase();
+      const plausibleSource=['seeded','purchase','delivery','received','found','crafted','existing','produced'].includes(srcType);
+      if(!plausibleSource) return {ok:false,reason:'The object has no validated acquisition/source event. AI proposals must identify a real source such as purchase, delivery, received, found, crafted, existing, or produced.'};
+      const rareAssertion=/(?:diamond crown|gold bar|briefcase of cash|infinite money|magic wand|lightsaber|private jet)/i.test(String(spec.name||''));
+      if(rareAssertion && !['received','purchase'].includes(srcType)) return {ok:false,reason:'A rare or high-value object cannot become true from assertion alone.'};
+      let locationId=spec.locationId||s.world.playerLocationId, containerId=spec.containerId||null;
+      if(containerId){ const container=this.getEntity(containerId); if(!container)return {ok:false,reason:'Unknown container.'}; locationId=container.locationId; }
+      if(locationId!=='carried'&&!s.locations[locationId]) return {ok:false,reason:'Entity location is not a known world location.'};
+      let id=String(spec.id||'').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,64);
+      if(!id || s.entities[id]) id=makeId('entity',s);
+      const props=spec.properties&&typeof spec.properties==='object'&&!Array.isArray(spec.properties)?clone(spec.properties):{};
+      if(JSON.stringify(props).length>4000)return {ok:false,reason:'Entity properties were too large.'};
+      const relationships=Array.isArray(spec.relationships)?spec.relationships.slice(0,20).map(x=>clone(x)):[];
+      const e={id,name:String(spec.name).slice(0,100),category:String(spec.category||'misc').slice(0,40),subtype:String(spec.subtype||'').slice(0,40),owner:spec.owner||'jonathan',locationId,containerId,quantity:Math.max(0,Number(spec.quantity==null?1:spec.quantity)),unit:String(spec.unit||'item').slice(0,20),portable:spec.portable!==false,consumable:Boolean(spec.consumable),edible:Boolean(spec.edible),perishable:Boolean(spec.perishable),condition:String(spec.condition||'good').slice(0,30),temperature:String(spec.temperature||'room').slice(0,30),cleanliness:Number(spec.cleanliness==null?75:spec.cleanliness),state:String(spec.state||'normal').slice(0,30),properties:props,relationships,createdAt:s.world.now,source:clone(src)};
+      s.entities[id]=e; this.recordCausalChange('entity_created',`${e.name} entered the world state.`,source,{entityId:id,source:srcType});
+      return {ok:true,entity:e};
+    }
+
+    moveEntity(entityId, locationId, containerId=null) {
+      const e=this.getEntity(entityId); if(!e)return {ok:false,reason:'Unknown entity.'};
+      let destination=locationId||e.locationId;
+      if(containerId){ const container=this.getEntity(containerId); if(!container)return {ok:false,reason:'Unknown container.'}; destination=container.locationId; }
+      if(destination && !this.state.locations[destination] && destination!=='carried') return {ok:false,reason:'Unknown destination.'};
+      e.locationId=destination; e.containerId=containerId||null; this.recordCausalChange('entity_moved',`${e.name} moved to ${containerId||e.locationId}.`,'action',{entityId:e.id,locationId:e.locationId,containerId:e.containerId}); return {ok:true,entity:e};
+    }
+
+    consumeEntity(entityId, amount=1) {
+      const e=this.getEntity(entityId); if(!e)return {ok:false,reason:'Unknown entity.'}; if(!e.consumable && !e.edible)return {ok:false,reason:`${e.name} is not consumable.`};
+      const n=Math.max(.01,Number(amount)||1); e.quantity=Math.max(0,Math.round((Number(e.quantity||0)-n)*100)/100); if(e.quantity<=0)e.state='consumed'; this.recordCausalChange('entity_consumed',`${e.name} quantity decreased by ${n}.`,'action',{entityId:e.id,amount:n}); return {ok:true,entity:e};
+    }
+
+    removeEntity(entityId, reason='removed') { const e=this.getEntity(entityId); if(!e)return false; delete this.state.entities[e.id]; this.recordCausalChange('entity_removed',`${e.name} was removed from world state.`,reason,{entityId:e.id}); return true; }
+
+    transferEntity(entityId, owner, reason='transfer') { const e=this.getEntity(entityId); if(!e)return {ok:false,reason:'Unknown entity.'}; const next=String(owner||'').trim(); if(!next)return {ok:false,reason:'Missing new owner.'}; const prior=e.owner; e.owner=next.slice(0,80); this.recordCausalChange('entity_transfer',`${e.name} ownership changed from ${prior||'unknown'} to ${e.owner}.`,reason,{entityId:e.id,from:prior,to:e.owner}); return {ok:true,entity:e}; }
+
+    createNPC(spec={}, source='met') {
+      const s=this.state, name=String(spec.name||'').trim(); if(!name)return {ok:false,reason:'NPC is missing a name.'};
+      const sourceType=String((spec.source&&spec.source.type)||spec.source||source||'').toLowerCase();
+      if(!['met','introduced','service_interaction','existing'].includes(sourceType))return {ok:false,reason:'A new person needs a plausible meeting/introduction source.'};
+      const locationId=spec.locationId||spec.location_id||s.world.playerLocationId; if(locationId!==s.world.playerLocationId)return {ok:false,reason:'A newly met person can only be created at Jonathan’s current location.'};
+      let id=String(spec.id||name.toLowerCase().replace(/[^a-z0-9]+/g,'_')).replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,48); if(!id||s.npcs[id])id=makeId('npc',s);
+      const threadId=`thread_${id}`;
+      const npc={id,name:name.slice(0,80),age:spec.age==null?null:Math.max(18,Math.min(100,Number(spec.age)||18)),occupation:String(spec.occupation||'').slice(0,100),homeLocationId:spec.homeLocationId||'unknown',playerKnows:true,personality:{traits:Array.isArray(spec.traits)?spec.traits.slice(0,8).map(String):[],temperament:String(spec.temperament||'neutral').slice(0,60),conversationalStyle:String(spec.conversationalStyle||'natural').slice(0,80),preferences:[],dislikes:[]},current:{locationId,activity:String(spec.activity||'present').slice(0,100),mood:String(spec.mood||'neutral').slice(0,40),scheduleOverride:{locationId,activity:String(spec.activity||'present').slice(0,100),reason:'newly met',startedAt:s.world.now,until:addMinutesISO(s.world.now,60),priority:40,commitmentId:null}},relationship:{label:'Acquaintance',trust:40,affection:30,respect:45,attraction:0,fear:0,resentment:0,familiarity:5},relationshipDynamics:{momentum:0,reciprocity:0,recentPositiveMinutes:0,recentNegativeWeight:0,lastMeaningfulInteractionAt:s.world.now,lastPlayerInitiatedAt:null,lastNpcInitiatedAt:null,unansweredMeaningfulMessages:0,lastDecayAt:s.world.now,nextInitiativeCheckAt:addMinutesISO(s.world.now,720)},knowledge:{factsKnown:[],suspicions:[],falseBeliefs:[],secretsKnown:[],unknownTopics:[]},beliefs:{},memories:[],plans:{scheduleType:'dynamic',upcomingCommitments:[],personalGoals:[],unresolvedProblems:[]},phone:{contactSaved:false,numberKnown:false,blocked:false,threadId}};
+      s.npcs[id]=npc; s.messages[threadId]=[]; this.recordCausalChange('npc_created',`Jonathan met ${npc.name}.`,sourceType,{npcId:id,locationId}); return {ok:true,npc};
+    }
+
+    learnPhoneNumber(npcId, method='shared') { const n=this.state.npcs[npcId]; if(!n)return {ok:false,reason:'Unknown person.'}; const allowed=['shared','offered','exchanged','written','known']; if(!allowed.includes(String(method||'').toLowerCase()))return {ok:false,reason:'Phone number was not obtained through a plausible method.'}; n.phone=n.phone||{threadId:`thread_${n.id}`}; n.phone.numberKnown=true; if(!this.state.messages[n.phone.threadId])this.state.messages[n.phone.threadId]=[]; this.recordCausalChange('phone_number',`Jonathan learned ${n.name}’s phone number.`,method,{npcId:n.id}); return {ok:true,npc:n}; }
+
+    environment(locationId=this.state.world.playerLocationId) { const s=this.state; if(!s.environments[locationId]) s.environments[locationId]={locationId,temperatureF:74,airQuality:100,airflow:1,odor:'none',smokeLevel:0,gasLevel:0,cleanliness:75,wetness:0,power:true,waterFlow:false,fireLevel:0,weatherExposure:0,windowsOpen:0,noiseLevel:20,lighting:'normal',properties:{},updatedAt:s.world.now}; const env=s.environments[locationId]; env.properties=env.properties&&typeof env.properties==='object'&&!Array.isArray(env.properties)?env.properties:{}; return env; }
+
+    setEnvironment(locationId,changes,source='action') {
+      const env=this.environment(locationId), accepted={}, clamp=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+      const ranges={temperatureF:[-20,130],airQuality:[0,100],airflow:[0,5],smokeLevel:[0,100],gasLevel:[0,100],cleanliness:[0,100],wetness:[0,100],fireLevel:[0,100],weatherExposure:[0,1],windowsOpen:[0,20],noiseLevel:[0,100]};
+      for(const [k,r] of Object.entries(ranges)){ if(changes&&changes[k]!=null){env[k]=clamp(changes[k],r[0],r[1]);accepted[k]=env[k];} }
+      for(const k of ['power','waterFlow']) if(changes&&changes[k]!=null){env[k]=Boolean(changes[k]);accepted[k]=env[k];}
+      for(const k of ['odor','lighting']) if(changes&&changes[k]!=null){env[k]=String(changes[k]).slice(0,80);accepted[k]=env[k];}
+      if(changes&&changes.properties&&typeof changes.properties==='object'&&!Array.isArray(changes.properties)){ const raw=JSON.stringify(changes.properties); if(raw.length<=3000){env.properties={...env.properties,...clone(changes.properties)};accepted.properties=clone(changes.properties);} }
+      env.updatedAt=this.state.world.now; if(Object.keys(accepted).length)this.recordCausalChange('environment',`Environment changed at ${locationId}.`,source,accepted); return accepted;
+    }
+
+    upsertUrgentCondition(id,text,severity='high',clearWhen=null) { const s=this.state; let u=s.urgentConditions.find(x=>x.id===id&&x.active!==false); if(!u){u={id,text,severity,createdAt:s.world.now,active:true,clearWhenKey:null};s.urgentConditions.push(u);} else {u.text=text;u.severity=severity;u.active=true;} if(clearWhen)u._clearWhen=clearWhen; return u; }
+    clearUrgentCondition(id){ const u=this.state.urgentConditions.find(x=>x.id===id&&x.active!==false); if(u){u.active=false;u.resolvedAt=this.state.world.now;this.addActivity('urgent',`${u.text} — resolved.`);} }
+    syncUrgentConditions(){
+      const s=this.state, now=asDate(s.world.now);
+      for(const u of s.urgentConditions){ if(u.active!==false && typeof u._clearWhen==='function' && u._clearWhen()) this.clearUrgentCondition(u.id); }
+      // Time-sensitive obligations are derived from authoritative event/commitment state.
+      const nextWork=(s.scheduledEvents||[]).filter(e=>e.type==='work_shift'&&['queued','started'].includes(e.status)&&asDate(e.triggerAt)>=new Date(now.getTime()-5*60000)).sort((a,b)=>asDate(a.triggerAt)-asDate(b.triggerAt))[0];
+      if(nextWork){ const mins=(asDate(nextWork.triggerAt)-now)/60000; if(mins>=0&&mins<=20&&s.world.playerLocationId!=='work') this.upsertUrgentCondition('work_soon',`Work starts in ${Math.max(0,Math.ceil(mins))} minute${Math.ceil(mins)===1?'':'s'} and Jonathan is not at the office.`,'high'); else this.clearUrgentCondition('work_soon'); } else this.clearUrgentCondition('work_soon');
+      const waiting=(s.commitments||[]).find(c=>c.status==='active'&&c.actualArrivalAt&&c.locationId&&c.involvedNpcIds&&c.involvedNpcIds.some(id=>{const n=s.npcs[id];return n&&n.current.locationId===c.locationId&&s.world.playerLocationId!==c.locationId;}));
+      if(waiting){ const id=waiting.involvedNpcIds.find(x=>s.npcs[x]); const n=s.npcs[id]; const place=s.locations[waiting.locationId]; this.upsertUrgentCondition(`waiting_${waiting.id}`,`${n?n.name:'Someone'} is waiting at ${place?place.name:'the planned location'}.`,'high'); }
+      for(const u of s.urgentConditions.filter(x=>x.active!==false&&String(x.id).startsWith('waiting_'))){ const cid=String(u.id).slice(8), c=s.commitments.find(x=>x.id===cid); if(!c||c.status!=='active'||!c.actualArrivalAt||s.world.playerLocationId===c.locationId)this.clearUrgentCondition(u.id); }
+      s.urgentConditions=s.urgentConditions.slice(-30);
+    }
+
+    setNPCPresence(npcId,locationId,activity='visiting',options={}) {
+      const s=this.state,n=s.npcs[npcId]; if(!n||!s.locations[locationId])return false;
+      const until=options.until||addMinutesISO(s.world.now,Math.max(15,Number(options.minutes||120)));
+      n.current.locationId=locationId; n.current.activity=activity; n.current.scheduleOverride={locationId,activity,reason:options.reason||'active commitment',startedAt:s.world.now,until,priority:Number(options.priority||60),commitmentId:options.commitmentId||null};
+      this.recordCausalChange('npc_presence',`${n.name} is now at ${locationId}: ${activity}.`,options.reason||'action',{npcId,locationId,until}); return true;
+    }
+    clearNPCOverride(npcId,reason='completed'){ const n=this.state.npcs[npcId]; if(!n)return; if(n.current.scheduleOverride)this.recordCausalChange('npc_override_end',`${n.name}'s schedule override ended.`,reason,{npcId}); n.current.scheduleOverride=null; }
+
+    createCommitment(spec={}) { const s=this.state; const involved=Array.isArray(spec.involvedNpcIds)?spec.involvedNpcIds:spec.npcId?[spec.npcId]:[]; const expectedAt=spec.expectedAt||spec.expected_at||s.world.now; const durationMinutes=Math.max(5,Math.min(720,Number(spec.durationMinutes||spec.duration_minutes||120))); const kind=String(spec.kind||(/call/i.test(String(spec.activity||''))?'call':'visit')).slice(0,30); const c={id:spec.id||makeId('commit',s),involvedNpcIds:involved.filter(id=>s.npcs[id]),title:String(spec.title||'Plan').slice(0,120),expectedAt,locationId:spec.locationId||spec.location_id||null,activity:String(spec.activity||'meet').slice(0,100),kind,status:spec.status||'confirmed',priority:Number(spec.priority||50),confirmed:spec.confirmed!==false,durationMinutes,plannedDepartureAt:null,actualArrivalAt:null,actualDepartureAt:null,createdAt:s.world.now,source:spec.source||'conversation'}; if(!c.involvedNpcIds.length) return null; if(c.locationId && !s.locations[c.locationId]) return null; s.commitments.push(c); if(s.commitments.length>80)s.commitments.splice(0,s.commitments.length-80); this.recordCausalChange('commitment',`Commitment created: ${c.title}.`,String(c.source),{commitmentId:c.id}); return c; }
+
+    processCommitments(from,to) {
+      const s=this.state, visible=[], end=asDate(to);
+      for(const c of (s.commitments||[])) {
+        if(c.status==='confirmed' && c.confirmed!==false && asDate(c.expectedAt)<=end) {
+          if(c.kind==='call' || /\bcall\b/i.test(c.activity||'')) {
+            const npcId=c.involvedNpcIds&&c.involvedNpcIds[0];
+            if(npcId && !s.scheduledEvents.some(e=>e.type==='npc_call'&&e.payload&&e.payload.commitmentId===c.id)) s.scheduledEvents.push({id:makeId('evt',s),type:'npc_call',title:`${s.npcs[npcId].name} call`,triggerAt:c.expectedAt,status:'queued',visibility:'hidden',npcId,payload:{reason:c.title,commitmentId:c.id}});
+            c.status='active'; c.actualArrivalAt=c.expectedAt; c.plannedDepartureAt=addMinutesISO(c.expectedAt,Math.max(8,c.durationMinutes||8));
+            continue;
+          }
+          if(c.locationId) {
+            c.status='active'; c.actualArrivalAt=c.expectedAt; c.plannedDepartureAt=addMinutesISO(c.expectedAt,c.durationMinutes||120);
+            for(const npcId of c.involvedNpcIds||[]) { const n=s.npcs[npcId]; if(!n)continue; this.setNPCPresence(npcId,c.locationId,c.activity||'meeting',{until:c.plannedDepartureAt,reason:c.title,commitmentId:c.id,priority:c.priority||60}); if(n.current.scheduleOverride)n.current.scheduleOverride.startedAt=c.expectedAt; }
+            if(s.world.playerLocationId===c.locationId){ const names=(c.involvedNpcIds||[]).map(id=>s.npcs[id]&&s.npcs[id].name).filter(Boolean).join(' and '); if(names)visible.push({type:'arrival',text:`${names} arrives for ${c.activity||'the plan'}.`}); }
+          }
+        }
+        if(c.status==='active' && c.plannedDepartureAt && asDate(c.plannedDepartureAt)<=end && c.kind!=='call') {
+          for(const npcId of c.involvedNpcIds||[]) { const n=s.npcs[npcId]; if(n&&n.current.scheduleOverride&&n.current.scheduleOverride.commitmentId===c.id)this.clearNPCOverride(npcId,'commitment completed'); }
+          c.status='completed'; c.actualDepartureAt=c.plannedDepartureAt;
+        }
+      }
+      return visible;
+    }
+
+    recordInteraction(npcId,kind='hangout',quality=0.2,minutes=10,source='interaction') { const s=this.state,n=s.npcs[npcId]; if(!n)return; const q=Math.max(-1,Math.min(1,Number(quality)||0)); const mins=Math.max(1,Number(minutes)||1); const d=n.relationshipDynamics; d.lastMeaningfulInteractionAt=s.world.now; d.momentum=Math.max(-10,Math.min(10,Number(d.momentum||0)+q*Math.min(2,mins/60))); if(q>0)d.recentPositiveMinutes=Math.min(1200,Number(d.recentPositiveMinutes||0)+mins); if(q<0)d.recentNegativeWeight=Math.min(20,Number(d.recentNegativeWeight||0)+Math.abs(q)); const famGain=q>=0?Math.min(2,mins/180):0; if(famGain)n.relationship.familiarity=Math.min(100,Number(n.relationship.familiarity||0)+famGain); if(q>.25&&mins>=30)this.changeRelationship(npcId,{affection:Math.min(1.5,q),trust:q>.5?.5:0},`Positive shared time (${kind})`); s.interactionHistory.push({id:makeId('interact',s),at:s.world.now,npcId,kind,quality:q,minutes:mins,source}); if(s.interactionHistory.length>180)s.interactionHistory.splice(0,s.interactionHistory.length-180); }
+
+    processRelationshipDrift(from,to) {
+      const s=this.state, hours=Math.max(0,(asDate(to)-asDate(from))/3600000); if(hours<=0)return;
+      for(const n of Object.values(s.npcs)){
+        const d=n.relationshipDynamics||{}; const thread=s.messages[n.phone&&n.phone.threadId]||[];
+        // "Ignored" means no player reply after the incoming message; opening/read status does not erase neglect.
+        const incoming=[...thread].reverse().find(m=>m.senderId===n.id&&m.recipientId==='jonathan');
+        const answered=incoming ? thread.some(m=>m.senderId==='jonathan'&&asDate(m.at)>asDate(incoming.at)) : true;
+        if(incoming && !answered){
+          const ageH=Math.max(0,(asDate(to)-asDate(incoming.at))/3600000);
+          const meaningful=/need|please|call me|important|are you okay|can you|could you|help|promise|really need|talk/i.test(incoming.body||'');
+          if(ageH>=36&&meaningful){
+            d.unansweredMeaningfulMessages=Math.max(Number(d.unansweredMeaningfulMessages||0),1);
+            if(ageH>=72 && !incoming.neglectApplied){
+              incoming.neglectApplied=true;
+              this.changeRelationship(n.id,{affection:-1,trust:-.5,resentment:1},`Meaningful message left unanswered for ${Math.round(ageH)} hours`);
+              d.momentum=Math.max(-10,Number(d.momentum||0)-1);
+              this.addMemory(n.id,{event:`Jonathan left an important message from ${n.name} unanswered for several days.`,emotionalValence:-.2,emotionalStrength:.2,importance:.32,decay:'normal',private:false,secret:false});
+            }
+          }
+        } else if(answered && Number(d.unansweredMeaningfulMessages||0)>0) {
+          d.unansweredMeaningfulMessages=Math.max(0,Number(d.unansweredMeaningfulMessages||0)-1);
+        }
+        const last=d.lastMeaningfulInteractionAt?asDate(d.lastMeaningfulInteractionAt):null;
+        if(last){ const days=(asDate(to)-last)/86400000; if(days>21 && hours>=12){ n.relationship.familiarity=Math.max(0,Number(n.relationship.familiarity||0)-Math.min(.15,hours/24*.03)); d.momentum=Math.max(-10,Number(d.momentum||0)-hours/24*.02); } }
+        n.relationshipDynamics=d;
+      }
+      this.maybeScheduleNPCInitiative(from,to);
+    }
+
+    maybeScheduleNPCInitiative(from,to) {
+      const s=this.state, end=asDate(to);
+      for(const n of Object.values(s.npcs)){
+        if(!n.phone||!n.phone.threadId||n.id==='eli') continue;
+        const d=n.relationshipDynamics||{};
+        const checkAt=asDate(d.nextInitiativeCheckAt||from);
+        if(end<checkAt) continue;
+        // Schedule the next check first so repeated short actions cannot spam checks.
+        d.nextInitiativeCheckAt=addMinutesISO(to,480+Math.floor(seededRandom(s)*720));
+        const lastNpc=d.lastNpcInitiatedAt?asDate(d.lastNpcInitiatedAt):null;
+        if(lastNpc && (end-lastNpc)<12*3600000) continue;
+        const fam=Number(n.relationship&&n.relationship.familiarity||35), aff=Number(n.relationship&&n.relationship.affection||35), momentum=Number(d.momentum||0), ignored=Number(d.unansweredMeaningfulMessages||0);
+        let chance=.08+fam*.0022+aff*.0016+Math.max(-.12,Math.min(.18,momentum*.025))-Math.min(.25,ignored*.12);
+        chance=Math.max(.025,Math.min(.5,chance));
+        if(seededRandom(s)>chance) continue;
+        const status=this.scheduleStateForNPC(n,to); if(/sleeping/.test(status.activity||'')) continue;
+        const existing=s.scheduledEvents.some(e=>e.type==='npc_initiated_message'&&e.npcId===n.id&&e.status==='queued'); if(existing)continue;
+        const delay=5+Math.floor(seededRandom(s)*55);
+        s.scheduledEvents.push({id:makeId('evt',s),type:'npc_initiated_message',title:`${n.name} reaches out`,triggerAt:addMinutesISO(to,delay),deadlineAt:null,status:'queued',visibility:'hidden',npcId:n.id,payload:{relationshipDriven:true}});
+        this.log('npc',`${n.name} decided to reach out later.`,true);
+      }
+    }
+
+    estimateTravelMinutes(fromId,toId,mode='drive') {
+      const s=this.state,from=s.locations[fromId],to=s.locations[toId]; if(!from||!to)return 20;
+      const explicit=(from.travel&&from.travel[toId])||(to.travel&&to.travel[fromId]);
+      if(explicit && toId!=='lax' && fromId!=='lax') return mode==='walk'?Math.max(8,Math.round(explicit*3.2)):Math.max(3,Math.round(explicit));
+      if(from.coords&&to.coords){ const R=3958.8,rad=x=>x*Math.PI/180,lat1=rad(from.coords.lat),lat2=rad(to.coords.lat),dlat=lat2-lat1,dlon=rad(to.coords.lon-from.coords.lon); const a=Math.sin(dlat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dlon/2)**2; const miles=2*R*Math.asin(Math.sqrt(a)); if(mode==='walk')return Math.max(8,Math.round(miles/3*60)); const h=asDate(s.world.now).getHours(); const traffic=(h>=7&&h<=9)||(h>=15&&h<=19)?1.45:1.12; const roadMiles=miles*1.18; return Math.max(5,Math.round((roadMiles/38*60)*traffic+6)); }
+      const fallback=explicit||20; return mode==='walk'?fallback*3:fallback;
+    }
+
+    estimateActionDuration(text) {
+      const raw=String(text||'').trim(),lower=raw.toLowerCase(); if(!raw)return null; const parsed=this.interpretAction(raw)[0];
+      const explicit=lower.match(/(\d+(?:\.\d+)?)\s*(hours?|hrs?|minutes?|mins?)/); if(explicit)return Math.max(1,Math.round(Number(explicit[1])*(explicit[2].startsWith('h')?60:1)));
+      if(parsed&&parsed.type==='travel'&&parsed.destinationId)return this.estimateTravelMinutes(this.state.world.playerLocationId,parsed.destinationId,parsed.mode);
+      if(parsed&&parsed.type==='sleep')return parsed.minutes;
+      if(parsed&&parsed.type==='shower')return 15;
+      if(parsed&&parsed.type==='restroom'){ const c=this.state.player.condition; const meal=(c.recentIntake||[]).slice(-1)[0]; return Math.round(4+Number(c.bladder||0)/25+(meal&&meal.size==='large'?4:0)); }
+      if(parsed&&parsed.type==='eat')return 25;
+      if(parsed&&parsed.type==='text')return 1;
+      if(parsed&&parsed.type==='call')return 8;
+      if(/overwatch|video game|gaming|play games/.test(lower))return 90;
+      if(/hang out|hangout|sit.*couch|watch tv|movie/.test(lower))return 60;
+      if(/work out|workout|exercise|gym/.test(lower))return 60;
+      if(/clean|chores/.test(lower))return 30;
+      return 10;
+    }
+
+    resolveFoodOrder(action) {
+      const s=this.state; const eta=30+Math.floor(seededRandom(s)*16); const entitySpec={name:action.item==='pizza'?'Large cheese pizza':'Takeout order',category:'food',subtype:action.item,owner:'jonathan',locationId:'home',containerId:null,quantity:action.item==='pizza'?8:1,unit:action.item==='pizza'?'slice':'serving',portable:true,consumable:true,edible:true,perishable:true,condition:'fresh',temperature:'warm',cleanliness:100,state:'ordered',properties:action.item==='pizza'?{servings:8,toppings:['cheese'],packaging:'cardboard box'}:{servings:1},source:{type:'delivery'}}; const ev={id:makeId('evt',s),type:'delivery',title:`${entitySpec.name} delivery`,triggerAt:addMinutesISO(s.world.now,eta),deadlineAt:addMinutesISO(s.world.now,eta+45),status:'queued',visibility:'known',locationId:'home',payload:{entitySpec,amount:action.amount,description:entitySpec.name}}; s.scheduledEvents.push(ev); this.feedback(`Delivery ETA ~${eta} min`); this.addActivity('order',`${entitySpec.name} ordered for ${formatMoney(action.amount)} · ETA about ${eta} min.`); return {ok:true,type:'order_food',minutes:3,narrative:`You place the order for ${entitySpec.name.toLowerCase()} for ${formatMoney(action.amount)}. The estimated delivery time is about ${eta} minutes.`};
+    }
+
+    resolveRestroom(action){ const c=this.state.player.condition; const meal=(c.recentIntake||[]).slice(-1)[0]; const minutes=Math.max(3,Math.round(4+Number(c.bladder||0)/25+(meal&&meal.size==='large'?4:0))); c.bladder=Math.max(0,Number(c.bladder||0)-80); return {ok:true,type:'restroom',minutes,narrative:`You use the restroom. It takes about ${minutes} minutes.`}; }
+    resolveAddContact(action){ const n=this.state.npcs[action.npcId]; if(!n||!n.phone.numberKnown)return {ok:false,type:'add_contact',minutes:1,narrative:'You do not have a usable number to save.'}; n.phone.contactSaved=true; if(!this.state.contacts.some(c=>c.npcId===n.id))this.state.contacts.push({npcId:n.id,name:n.name,phone:'saved'}); return {ok:true,type:'add_contact',minutes:1,narrative:`You add ${n.name} to your contacts.`}; }
+
+    scheduleNPCVisit(npcId,locationId=this.state.world.playerLocationId,minutes=120,reason='visiting Jonathan') { const n=this.state.npcs[npcId]; if(!n)return null; const c=this.createCommitment({npcId,title:`${n.name} visits Jonathan`,expectedAt:this.state.world.now,locationId,activity:'hanging out',status:'active',priority:70,source:'shared plan'}); c.actualArrivalAt=this.state.world.now; this.setNPCPresence(npcId,locationId,'hanging out',{minutes,reason,commitmentId:c.id,priority:70}); return c; }
+
+    localMilestone4Effects(raw) {
+      const s=this.state,lower=String(raw||'').toLowerCase(),accepted=[];
+      if(/(?:leave|left|turn).*(?:gas )?stove.*(?:on|running)|stove.*gas.*(?:on|running)/.test(lower) && !/turn.*off/.test(lower)){ const stove=this.getEntity('home_stove'); stove.state='on'; stove.properties.gasFlow=true; stove.properties.flame=!/without (?:a )?flame|no flame|unlit|not lit/.test(lower) && /\b(?:flame|lit|ignite|ignited)\b/.test(lower); accepted.push('stove gas state'); this.recordCausalChange('hazard_source','Gas stove left flowing.','free action',{entityId:stove.id}); }
+      if(/turn.*stove.*off|shut.*stove.*off|turn.*gas.*off/.test(lower)){ const stove=this.getEntity('home_stove'); stove.state='off'; stove.properties.gasFlow=false; stove.properties.flame=false; accepted.push('stove off'); this.recordCausalChange('hazard_source','Gas stove flow stopped.','free action',{entityId:stove.id}); }
+      if(/open.*window/.test(lower)){ const w=this.getEntity('home_window'); w.state='open'; w.properties.open=true; const env=this.environment('home'); env.windowsOpen=Math.max(1,Number(env.windowsOpen||0)); accepted.push('window opened'); }
+      if(/close.*window/.test(lower)){ const w=this.getEntity('home_window'); w.state='closed'; w.properties.open=false; this.environment('home').windowsOpen=0; accepted.push('window closed'); }
+      if(/(?=.*(?:towel|blanket|shirt))(?=.*(?:ac|a\/c|hvac|vent))(?=.*(?:block|cover|over))/i.test(lower)){ let item=Object.values(s.entities).find(e=>/towel|blanket|shirt/i.test(e.name)); if(!item){ const cr=this.createEntity({name:/blanket/.test(lower)?'Blanket':/shirt/.test(lower)?'Shirt':'Towel',category:'household',owner:'jonathan',locationId:'home',portable:true,source:{type:'existing'}},'action'); item=cr.entity; } this.moveEntity(item.id,'home','home_hvac_return'); const vent=this.getEntity('home_hvac_return'); vent.state='blocked'; vent.properties.airflowObstruction=.8; accepted.push('HVAC obstruction'); }
+      if(/remove.*(?:towel|blanket|shirt).*(?:vent|ac|a\/c|hvac)|unblock.*(?:vent|ac|a\/c|hvac)/.test(lower)){ const vent=this.getEntity('home_hvac_return'); vent.state='clear'; vent.properties.airflowObstruction=0; const item=Object.values(s.entities).find(e=>e.containerId==='home_hvac_return'); if(item)this.moveEntity(item.id,'home',null); accepted.push('HVAC cleared'); }
+      const np=Object.values(s.npcs).find(n=>lower.includes(n.name.toLowerCase())); if(np && /(?:comes? over|came over|comes? inside|came inside|walks? in|arrives?|is here|joins me)/.test(lower)){ const commitment=(s.commitments||[]).find(c=>c.involvedNpcIds&&c.involvedNpcIds.includes(np.id)&&c.locationId===s.world.playerLocationId&&['confirmed','active'].includes(c.status)); if(commitment){ commitment.status='active'; commitment.actualArrivalAt=commitment.actualArrivalAt||s.world.now; commitment.durationMinutes=Math.max(15,Number(commitment.durationMinutes||(/overwatch|game|hang/.test(lower)?150:120))); commitment.plannedDepartureAt=commitment.plannedDepartureAt||addMinutesISO(s.world.now,commitment.durationMinutes); this.setNPCPresence(np.id,s.world.playerLocationId,commitment.activity||'hanging out',{until:commitment.plannedDepartureAt,reason:commitment.title||`${np.name} arrived`,commitmentId:commitment.id,priority:commitment.priority||70}); accepted.push(`${np.name} presence from confirmed commitment`); } }
+      if(np && /(?:leaves?|goes? home|heads? home|went home)/.test(lower)){ this.clearNPCOverride(np.id,'left visit'); np.current.locationId=np.homeLocationId; np.current.activity='at home'; accepted.push(`${np.name} departure`); }
+      const pizza=Object.values(s.entities).find(e=>e.category==='food'&&/pizza/i.test(e.name)&&e.state!=='consumed'); if(pizza && /put.*pizza.*fridge|pizza.*(?:in|into).*fridge/.test(lower)){ this.moveEntity(pizza.id,'home','home_fridge'); pizza.temperature='cold'; accepted.push('pizza refrigerated'); }
+      if(pizza && /eat.*(?:two|2).*slice/.test(lower)){ this.consumeEntity(pizza.id,2); pizza.properties.servings=Math.max(0,Number(pizza.properties.servings||pizza.quantity)-2); s.player.condition.hunger=Math.max(0,Number(s.player.condition.hunger||0)-28); s.player.condition.lastAteAt=s.world.now; accepted.push('pizza consumed'); }
+      return accepted;
+    }
+
+    applyMilestone4Resolution(raw,resolution) {
+      const s=this.state, proposed=[],accepted=[],rejected=[];
+      const effects=[];
+      if(Array.isArray(resolution&&resolution.world_effects))effects.push(...resolution.world_effects);
+      if(resolution&&resolution.effects&&Array.isArray(resolution.effects.world_effects))effects.push(...resolution.effects.world_effects);
+      for(const fx of effects.slice(0,24)){
+        proposed.push(clone(fx)); if(!fx||!fx.op){rejected.push({effect:fx,reason:'Missing op'});continue;}
+        try{
+          let result=null;
+          if(fx.op==='create_entity')result=this.createEntity(fx.entity||fx.value||{},'ai-validated');
+          else if(fx.op==='create_npc')result=this.createNPC(fx.npc||fx.person||fx.value||{},'met');
+          else if(fx.op==='learn_phone_number')result=this.learnPhoneNumber(fx.npc_id||fx.npcId,fx.method||'shared');
+          else if(fx.op==='move_entity')result=this.moveEntity(fx.entity_id||fx.entityId,fx.location_id||fx.locationId,fx.container_id||fx.containerId||null);
+          else if(fx.op==='consume_entity')result=this.consumeEntity(fx.entity_id||fx.entityId,fx.amount||1);
+          else if(fx.op==='remove_entity'){result={ok:this.removeEntity(fx.entity_id||fx.entityId,'ai-validated')};}
+          else if(fx.op==='transfer_entity')result=this.transferEntity(fx.entity_id||fx.entityId,fx.owner||fx.new_owner||fx.newOwner,'ai-validated');
+          else if(fx.op==='update_entity'){
+            const e=this.getEntity(fx.entity_id||fx.entityId); if(!e)result={ok:false,reason:'Unknown entity'}; else {
+              const ch=fx.changes||{};
+              if(ch.quantity!=null)e.quantity=Math.max(0,Math.min(100000,Number(ch.quantity)||0));
+              if(ch.cleanliness!=null)e.cleanliness=Math.max(0,Math.min(100,Number(ch.cleanliness)||0));
+              for(const k of ['condition','temperature','state'])if(ch[k]!=null)e[k]=String(ch[k]).slice(0,60);
+              if(ch.properties&&typeof ch.properties==='object'&&!Array.isArray(ch.properties)){const raw=JSON.stringify(ch.properties);if(raw.length<=3000)e.properties={...e.properties,...clone(ch.properties)};else throw new Error('Entity property update was too large.');}
+              result={ok:true,entity:e};
+            }
+          }
+          else if(fx.op==='set_environment'){ const locId=fx.location_id||fx.locationId||s.world.playerLocationId; if(!s.locations[locId])result={ok:false,reason:'Unknown environment location'}; else {this.setEnvironment(locId,fx.changes||{},'ai-validated'); result={ok:true};} }
+          else if(fx.op==='set_npc_presence'){
+            const npcId=fx.npc_id||fx.npcId, locId=fx.location_id||fx.locationId, n=s.npcs[npcId];
+            if(!n||!s.locations[locId]) result={ok:false,reason:'Unknown NPC or destination'};
+            else {
+              const duration=Math.max(1,Number(fx.duration_minutes||resolution.duration_minutes||0));
+              const activeCommitment=(s.commitments||[]).find(c=>c.involvedNpcIds&&c.involvedNpcIds.includes(npcId)&&c.locationId===locId&&['confirmed','active'].includes(c.status));
+              const travel=n.current.locationId===locId?0:this.estimateTravelMinutes(n.current.locationId,locId,'drive');
+              const basis=String(fx.basis||'').toLowerCase();
+              if(n.current.locationId!==locId&&!activeCommitment&&!['npc_initiated','observed_arrival'].includes(basis)) result={ok:false,reason:`NPC move rejected: ${n.name} has no confirmed commitment or independently validated reason to be there.`};
+              else if(n.current.locationId!==locId&&!activeCommitment&&duration<Math.max(8,travel*.6)) result={ok:false,reason:`NPC move rejected: ${n.name} could not plausibly reach ${locId} within this action.`};
+              else {const ok=this.setNPCPresence(npcId,locId,fx.activity||'present',{minutes:fx.duration_minutes||120,reason:fx.reason||basis||'AI-resolved action',commitmentId:activeCommitment&&activeCommitment.id}); if(activeCommitment&&activeCommitment.status==='confirmed'){activeCommitment.status='active';activeCommitment.actualArrivalAt=s.world.now;activeCommitment.plannedDepartureAt=addMinutesISO(s.world.now,activeCommitment.durationMinutes||120);} result={ok};}
+            }
+          }
+          else if(fx.op==='create_commitment'){const commitment=this.createCommitment(fx.commitment||fx);result=commitment?{ok:true,commitment}:{ok:false,reason:'Commitment referenced an unknown person or location.'};}
+          else if(fx.op==='record_interaction'){ const npcId=fx.npc_id||fx.npcId; if(!s.npcs[npcId]||s.npcs[npcId].current.locationId!==s.world.playerLocationId)result={ok:false,reason:'Shared interaction requires co-location.'}; else {this.recordInteraction(npcId,fx.kind||'shared activity',Math.max(-1,Math.min(1,Number(fx.quality||0))),Math.max(1,Number(fx.minutes||resolution.duration_minutes||10)),'ai-validated');result={ok:true};} }
+          else if(fx.op==='clear_urgent_condition'){this.clearUrgentCondition(String(fx.id||fx.condition_id||''));result={ok:true};}
+          else if(fx.op==='urgent_condition'){ const c=fx.condition||fx; this.upsertUrgentCondition(String(c.id||makeId('urgent',s)),String(c.text||c.title||'Urgent condition'),String(c.severity||'high')); result={ok:true}; }
+          else if(fx.op==='schedule_event'){ const ev=fx.event||{}; if(!ev.type||!ev.triggerAt)result={ok:false,reason:'Event missing type/triggerAt'}; else {s.scheduledEvents.push({id:ev.id||makeId('evt',s),status:'queued',visibility:ev.visibility||'hidden',...ev});result={ok:true};} }
+          else result={ok:false,reason:`Unsupported world-effect op ${fx.op}`};
+          if(result&&result.ok)accepted.push(fx); else rejected.push({effect:fx,reason:result&&result.reason||'Rejected by validator'});
+        }catch(err){rejected.push({effect:fx,reason:String(err.message||err)});}
+      }
+      const local=this.localMilestone4Effects(raw); for(const x of local)accepted.push({op:'local_causal_effect',description:x});
+      s.ui.lastWorldEffects={proposed,accepted,rejected,at:s.world.now};
+      return {accepted:accepted.length,rejected:rejected.length};
+    }
+
+    processCausality(from,to,minutes) {
+      const s=this.state, home=this.environment('home'), dt=Math.max(0,Number(minutes)||0), stove=this.getEntity('home_stove'), vent=this.getEntity('home_hvac_return');
+      const gasActive=stove&&stove.properties&&stove.properties.gasFlow&&!stove.properties.flame;
+      const ventilation=Math.max(.2,Number(home.airflow||1)+(Number(home.windowsOpen||0)*1.8));
+      const beforeGas=Number(home.gasLevel||0);
+      if(gasActive) home.gasLevel=Math.min(100,beforeGas+dt*(0.22/ventilation)); else home.gasLevel=Math.max(0,beforeGas-dt*(0.18*ventilation));
+      home.airQuality=Math.max(0,100-home.gasLevel*.9-Number(home.smokeLevel||0));
+      home.odor=home.gasLevel>=8?'gas':home.smokeLevel>5?'smoke':'none';
+      if(Math.abs(home.gasLevel-beforeGas)>=1)this.recordCausalChange('gas_level',`Home gas level changed from ${beforeGas.toFixed(1)} to ${home.gasLevel.toFixed(1)}.`,gasActive?'stove gas flow':'ventilation',{before:beforeGas,after:home.gasLevel});
+      if(home.gasLevel>=18)this.upsertUrgentCondition('home_gas','Possible gas buildup in the apartment needs immediate attention.','critical'); else if(home.gasLevel<6)this.clearUrgentCondition('home_gas');
+      if(s.world.playerLocationId==='home'&&home.gasLevel>=12){ const exposure=home.gasLevel>=35?2.2:home.gasLevel>=22?1.2:.5; s.player.condition.stress=Math.min(100,Number(s.player.condition.stress||0)+exposure*dt/10); s.player.condition.focus=Math.max(0,Number(s.player.condition.focus||0)-exposure*dt/18); if(home.gasLevel>=22 && !s.player.condition.statusEffects.some(x=>x.id==='gas-lightheaded')) s.player.condition.statusEffects.push({id:'gas-lightheaded',label:'Light-headed',intensity:home.gasLevel>=40?'moderate':'mild',startedAt:s.world.now,expiresAt:addMinutesISO(s.world.now,45),impairsDriving:home.gasLevel>=40,modifiers:{coordination:-5,composure:-3,driving:home.gasLevel>=40?-10:-3}}); }
+      const obstruction=vent&&vent.properties?Math.max(0,Math.min(1,Number(vent.properties.airflowObstruction||0))):0; home.airflow=Math.max(.15,1-obstruction*.82); if(obstruction>.5){ const before=home.temperatureF; home.temperatureF=Math.min(90,Number(home.temperatureF||72)+dt/60*1.2*obstruction); if(Math.abs(home.temperatureF-before)>=.4)this.recordCausalChange('temperature','Reduced HVAC airflow allowed the apartment to warm.','HVAC obstruction',{before,after:home.temperatureF}); } else { const target=72; home.temperatureF=Number(home.temperatureF||72)+(target-Number(home.temperatureF||72))*Math.min(1,dt/180); }
+      if(Number(home.fireLevel||0)>0){ const beforeSmoke=Number(home.smokeLevel||0); home.smokeLevel=Math.min(100,beforeSmoke+dt*Math.max(.05,Number(home.fireLevel||0)/500)); home.temperatureF=Math.min(110,Number(home.temperatureF||72)+dt*Number(home.fireLevel||0)/5000); this.upsertUrgentCondition('home_fire','Active fire/smoke in the apartment needs immediate attention.','critical'); } else this.clearUrgentCondition('home_fire');
+      if(home.waterFlow) home.wetness=Math.min(100,Number(home.wetness||0)+dt*.12); else home.wetness=Math.max(0,Number(home.wetness||0)-dt*.12*Math.max(.5,home.airflow));
+      if(Number(home.fireLevel||0)<=0) home.smokeLevel=Math.max(0,Number(home.smokeLevel||0)-dt*.08*ventilation);
+      home.airQuality=Math.max(0,100-Number(home.gasLevel||0)*.9-Number(home.smokeLevel||0)*.8);
+      if(Number(home.smokeLevel||0)>=18)this.upsertUrgentCondition('home_smoke','Smoke is building up in the apartment.','critical'); else if(Number(home.smokeLevel||0)<6)this.clearUrgentCondition('home_smoke');
+      for(const e of Object.values(s.entities||{})){ if(!e.perishable||e.state==='consumed'||e.state==='spoiled')continue; const ageH=Math.max(0,(asDate(to)-asDate(e.createdAt))/3600000); const refrigerated=e.containerId==='home_fridge'; if((!refrigerated&&ageH>4)||(refrigerated&&ageH>96)){e.condition='stale';} if((!refrigerated&&ageH>8)||(refrigerated&&ageH>168)){e.condition='spoiled';e.state='spoiled';} }
+      this.syncUrgentConditions();
+    }
+
+    processNeedConsequences(minutes) {
+      const s=this.state,c=s.player.condition,dt=Math.max(0,Number(minutes)||0);
+      c.hunger=Math.min(100,Number(c.hunger||0)+dt/50); c.hydration=Math.max(0,Number(c.hydration||0)-dt/55); c.bladder=Math.min(100,Number(c.bladder||0)+dt/42); c.hygiene=Math.max(0,Number(c.hygiene||0)-dt/700); c.intimacyNeed=Math.min(100,Number(c.intimacyNeed||0)+dt/900); c.socialConnection=Math.max(0,Number(c.socialConnection||0)-dt/1500);
+      const debt=Math.max(0,Number(c.sleepDebtHours||0)); const hunger=Math.max(0,Number(c.hunger||0)); const hydration=Math.max(0,Number(c.hydration||0)); const stress=Math.max(0,Number(c.stress||0));
+      let focus=78-debt*5-Math.max(0,hunger-65)*.45-Math.max(0,45-hydration)*.65-stress*.16; c.focus=Math.max(0,Math.min(100,focus));
+      c.security=Math.max(0,Math.min(100,55+(Number(c.health||80)-50)*.18+(Number(c.fitness||50)-50)*.1+(Number(c.hygiene||60)-50)*.08-(Number(c.stress||0)-30)*.13+(s.player.money.checking>500?5:-8)));
+      c.mood=Math.max(0,Math.min(100,62-(stress-30)*.25-(hunger-45)*.12-(debt*2.2)+(Number(c.socialConnection||50)-50)*.08));
+      if(hunger>=92)this.upsertUrgentCondition('severe_hunger','Severe hunger is beginning to impair normal activity.','high'); else if(hunger<78)this.clearUrgentCondition('severe_hunger');
+      if(hydration<=18)this.upsertUrgentCondition('dehydration','Dehydration is impairing focus and energy. Drink water soon.','high'); else if(hydration>35)this.clearUrgentCondition('dehydration');
+      if(debt>=8)this.upsertUrgentCondition('severe_sleep_debt','Severe exhaustion may prevent demanding tasks or work.','high'); else if(debt<5)this.clearUrgentCondition('severe_sleep_debt');
+      if(hunger>=95||hydration<=10||debt>=10)c.energy=Math.max(0,Number(c.energy||0)-dt/90);
+      if(hunger>=99)c.health=Math.max(0,Number(c.health||100)-dt/360);
+      if(hydration<=8){c.health=Math.max(0,Number(c.health||100)-dt/180);c.pain=Math.min(100,Number(c.pain||0)+dt/240);}
+      this.syncUrgentConditions();
+      const statuses=this.activeStatusEffects(); c.description=statuses.length?statuses.map(x=>x.label).join(', '):c.energy<20?'Exhausted':hunger>85?'Very hungry':hydration<25?'Dehydrated':debt>=6?'Sleep-deprived':c.injured?'Injured':'Fine';
+    }
+
+    resolveIncomingCall(choice) {
+      const s=this.state, call=s.ui.incomingCall; if(!call)return false;
+      const n=s.npcs[call.npcId], rec=s.phoneCalls.find(x=>x.id===call.callId), event=s.scheduledEvents.find(e=>e.id===call.eventId);
+      if(event) event.status='completed';
+      const commitmentId=call.commitmentId||(event&&event.payload&&event.payload.commitmentId);
+      if(commitmentId){const c=s.commitments.find(x=>x.id===commitmentId);if(c){c.status='completed';c.actualDepartureAt=s.world.now;}}
+      if(choice==='answer'){
+        if(rec){rec.status='answered';rec.answeredAt=s.world.now;}
+        s.ui.incomingCall=null;
+        this.addActivity('call',`Answered incoming call from ${n.name}.`);
+        this.addMemory(n.id,{event:`Jonathan answered a call from ${n.name}.`,importance:.15,emotionalValence:.05,emotionalStrength:.08,decay:'fast'});
+        n.relationshipDynamics=n.relationshipDynamics||{}; n.relationshipDynamics.lastMeaningfulInteractionAt=s.world.now;
+        const previous=s.world.currentActivity; s.world.currentActivity='call'; const advanced=this.advanceTime(8); s.world.currentActivity=previous||null;
+        return {ok:true,minutes:8,visibleEvents:advanced.visibleEvents,narrative:`You answer ${n.name}'s call and talk for about eight minutes.`};
+      }
+      if(rec){rec.status=choice==='decline'?'declined':'ignored';rec.endedAt=s.world.now;}
+      if(choice==='ignore'){
+        n.relationshipDynamics=n.relationshipDynamics||{};
+        n.relationshipDynamics.unansweredMeaningfulMessages=Number(n.relationshipDynamics.unansweredMeaningfulMessages||0)+1;
+        n.relationshipDynamics.momentum=Math.max(-10,Number(n.relationshipDynamics.momentum||0)-.2);
+      }
+      this.addActivity('call',`${choice==='decline'?'Declined':'Ignored'} incoming call from ${n.name}.`);
+      s.ui.incomingCall=null;
+      return {ok:true,minutes:0,narrative:`You ${choice==='decline'?'decline':'ignore'} ${n.name}'s call.`};
     }
 
     updateSituations() {
@@ -2224,6 +2784,50 @@ button:disabled { opacity: .38; cursor: default; }
       const e=new SimulationEngine(createInitialState({startTime:fixed,seed:27})); const social=e.localTextSocialOutcome(e.state.npcs.daniel,'What time are you free tomorrow?'); assert(!social.meaningful,'Neutral text incorrectly marked meaningful.'); assert(Object.values(social.relationship_effects).every(v=>v===0),'Neutral text got relationship effects.');
     });
 
+    check('28 — Milestone 4 save migration initializes generic world state', () => {
+      const old=createInitialState({startTime:fixed,seed:28}); delete old.entities; delete old.environments; old.schemaVersion=1; const e=new SimulationEngine(old); assert(e.state.schemaVersion>=4,'Schema did not migrate.'); assert(e.state.entities.home_stove,'Seeded stove entity missing.'); assert(e.state.environments.home,'Home environment missing.');
+    });
+    check('29 — Daniel presence override survives baseline schedule', () => {
+      const s=createInitialState({startTime:'2026-09-21T20:30:00',seed:29}); const e=new SimulationEngine(s); e.scheduleNPCVisit('daniel','home',180,'test visit'); e.advanceTime(120); assert(e.state.npcs.daniel.current.locationId==='home','Daniel was teleported home by baseline schedule.'); assert(e.state.npcs.daniel.current.scheduleOverride,'Schedule override disappeared early.');
+    });
+    check('30 — Co-located shared activity increases familiarity', () => {
+      const e=new SimulationEngine(createInitialState({startTime:fixed,seed:30})); e.scheduleNPCVisit('daniel','home',180,'test'); const before=e.state.npcs.daniel.relationship.familiarity; e.recordInteraction('daniel','gaming',.5,90,'test'); assert(e.state.npcs.daniel.relationship.familiarity>before,'Familiarity did not grow.');
+    });
+    check('31 — Dynamic pizza delivery creates a usable entity', () => {
+      const e=new SimulationEngine(createInitialState({startTime:fixed,seed:31})); e.state.scheduledEvents=e.state.scheduledEvents.filter(x=>x.type!=='daniel_shift_request'); const r=e.perform('order a pizza for $24'); const delivery=e.state.scheduledEvents.find(x=>x.type==='delivery'&&x.status==='queued'); assert(delivery,'Delivery event missing.'); e.advanceTime(60); const pizza=Object.values(e.state.entities).find(x=>/pizza/i.test(x.name)); assert(pizza,'Pizza entity was not created.'); e.moveEntity(pizza.id,'home','home_fridge'); assert(pizza.containerId==='home_fridge','Pizza could not be moved into fridge.'); const q=pizza.quantity; e.consumeEntity(pizza.id,2); assert(pizza.quantity<q,'Pizza quantity did not decrease.');
+    });
+    check('32 — Gas hazard persists, worsens, and clears after source/ventilation', () => {
+      const e=new SimulationEngine(createInitialState({startTime:fixed,seed:32})); e.localMilestone4Effects('I leave the gas stove on without a flame'); e.advanceTime(120); assert(e.state.environments.home.gasLevel>10,'Gas did not accumulate.'); assert(e.state.urgentConditions.some(x=>x.id==='home_gas'&&x.active!==false),'Gas urgent condition missing.'); e.localMilestone4Effects('I turn the stove off and open the window'); e.advanceTime(240); assert(e.state.environments.home.gasLevel<6,'Gas did not dissipate.'); assert(!e.state.urgentConditions.some(x=>x.id==='home_gas'&&x.active!==false),'Gas urgent condition did not clear.');
+    });
+    check('33 — Impossible goldfish mutation is rejected', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:33})); const r=e.perform('A goldfish grows wings and flies into the vents'); assert(r.results[0].ok===false,'Impossible biological mutation was accepted.'); });
+    check('34 — HVAC obstruction produces persistent airflow consequence', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:34})); e.localMilestone4Effects('I put a towel over the AC vent and block it'); const before=e.state.environments.home.temperatureF; e.advanceTime(120); assert(e.state.environments.home.airflow<.6,'Airflow was not reduced.'); assert(e.state.environments.home.temperatureF>before,'Temperature did not respond to obstruction.'); e.localMilestone4Effects('I remove the towel from the vent'); assert(e.getEntity('home_hvac_return').properties.airflowObstruction===0,'Vent did not clear.'); });
+    check('35 — Two hours sleep creates meaningful sleep debt', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:35})); e.perform('sleep for 2 hours'); assert(e.state.player.condition.sleepDebtHours>=6,'Sleep debt did not accumulate.'); assert(e.state.player.condition.focus<60,'Focus was not impaired.'); });
+    check('36 — Severe needs can block work', () => { const e=new SimulationEngine(createInitialState({startTime:'2026-10-01T07:40:00',seed:36})); e.state.world.playerLocationId='work'; e.state.player.condition.energy=5; const r=e.perform('start working'); assert(r.results[0].ok===false&&/depleted/i.test(r.results[0].narrative),'Severe depletion did not block work.'); });
+    check('37 — Incoming call can ring when game time crosses call event', () => { const s=createInitialState({startTime:fixed,seed:37}); s.scheduledEvents.push({id:'call_test',type:'npc_call',title:'Daniel call',triggerAt:addMinutesISO(fixed,5),status:'queued',visibility:'hidden',npcId:'daniel',payload:{reason:'test'}}); const e=new SimulationEngine(s); e.advanceTime(10); assert(e.state.ui.incomingCall&&e.state.ui.incomingCall.npcId==='daniel','Incoming call did not ring.'); });
+    check('38 — Known number can be added as a contact', () => { const s=createInitialState({startTime:fixed,seed:38}); s.npcs.testperson={id:'testperson',name:'Avery',occupation:'Barista',homeLocationId:'coffee',personality:{traits:[]},current:{locationId:'coffee',activity:'working',mood:'neutral'},relationship:{label:'Acquaintance',trust:40,affection:30,respect:45,attraction:0,fear:0,resentment:0,familiarity:10},knowledge:{factsKnown:[],suspicions:[],falseBeliefs:[],secretsKnown:[],unknownTopics:[]},beliefs:{},memories:[],plans:{unresolvedProblems:[]},phone:{contactSaved:false,numberKnown:true,threadId:'thread_testperson'}}; s.messages.thread_testperson=[]; const e=new SimulationEngine(s); const r=e.perform('add Avery to contacts'); assert(r.results[0].ok!==false&&e.state.contacts.some(x=>x.npcId==='testperson'),'Contact was not saved.'); });
+    check('39 — Contextual travel estimate distinguishes LAX from local trip', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:39})); const local=e.estimateTravelMinutes('home','grocery','drive'), lax=e.estimateTravelMinutes('home','lax','drive'); assert(lax>local*2,'LAX travel time is not meaningfully longer than local travel.'); });
+    check('40 — Duration estimates exist for contextual suggestions', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:40})); assert(e.estimateActionDuration('Play Overwatch with Daniel')>=60,'Gaming duration estimate too short.'); assert(e.estimateActionDuration('Use the restroom')>=3,'Restroom estimate missing.'); });
+    check('41 — Reading but not replying still counts as neglect', () => { const s=createInitialState({startTime:fixed,seed:41}); const before=s.npcs.daniel.relationship.resentment; s.messages.thread_daniel.push({id:'need_reply',at:fixed,senderId:'daniel',recipientId:'jonathan',body:'Can you please call me? I really need to talk.',read:true}); const e=new SimulationEngine(s); e.advanceTime(73*60); assert(e.state.npcs.daniel.relationship.resentment>before,'Read-but-unanswered important message did not affect relationship after days.'); });
+    check('42 — Answering an incoming call completes the event and advances call time', () => { const s=createInitialState({startTime:fixed,seed:42}); s.scheduledEvents.push({id:'call_answer_test',type:'npc_call',title:'Daniel call',triggerAt:addMinutesISO(fixed,5),status:'queued',visibility:'hidden',npcId:'daniel',payload:{reason:'test'}}); const e=new SimulationEngine(s); e.advanceTime(10); const before=e.state.world.now; e.resolveIncomingCall('answer'); const ev=e.state.scheduledEvents.find(x=>x.id==='call_answer_test'); assert(ev.status==='completed','Answered call event remained ringing.'); assert(minutesBetween(before,e.state.world.now)>=8,'Answered call did not consume conversation time.'); });
+    check('43 — Work-soon urgent alert derives from schedule state', () => { const e=new SimulationEngine(createInitialState({startTime:'2026-10-01T07:25:00',seed:43})); e.state.world.playerLocationId='home'; e.advanceTime(1); assert(e.state.urgentConditions.some(x=>x.id==='work_soon'&&x.active!==false),'Work-soon urgent alert was not created.'); });
+    check('44 — Close NPCs can autonomously schedule contact', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:44})); const n=e.state.npcs.daniel; n.relationship.familiarity=100;n.relationship.affection=100;n.relationshipDynamics.momentum=10;n.relationshipDynamics.nextInitiativeCheckAt=fixed; let found=false; for(let i=0;i<24&&!found;i++){ e.maybeScheduleNPCInitiative(e.state.world.now,addMinutesISO(e.state.world.now,60)); found=e.state.scheduledEvents.some(x=>x.type==='npc_initiated_message'&&x.npcId==='daniel'&&x.status==='queued'); n.relationshipDynamics.nextInitiativeCheckAt=e.state.world.now; } assert(found,'High-closeness NPC never scheduled autonomous contact.'); });
+    check('45 — Future NPC commitment becomes authoritative presence at the agreed time', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:45})); const c=e.createCommitment({npcId:'daniel',title:'Daniel comes over',expectedAt:addMinutesISO(fixed,30),locationId:'home',activity:'hanging out',durationMinutes:120,status:'confirmed'}); assert(c,'Commitment was not created.'); e.advanceTime(31); assert(e.state.npcs.daniel.current.locationId==='home','Daniel did not arrive for confirmed commitment.'); assert(e.state.npcs.daniel.current.scheduleOverride&&e.state.npcs.daniel.current.scheduleOverride.commitmentId===c.id,'Commitment did not create a schedule override.'); });
+    check('46 — A bare player assertion cannot locally teleport Daniel home', () => { const e=new SimulationEngine(createInitialState({startTime:'2026-09-21T19:30:00',seed:46})); e.state.npcs.daniel.current.locationId='gym'; e.state.npcs.daniel.current.scheduleOverride=null; e.localMilestone4Effects('Daniel comes over and sits on my couch'); assert(e.state.npcs.daniel.current.locationId==='gym','Player assertion directly changed Daniel objective location without a commitment.'); });
+    check('47 — Generic AI world effect can create an ordinary validated item', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:47})); const r=e.applyMilestone4Resolution('I receive a notebook',{world_effects:[{op:'create_entity',entity:{name:'Small notebook',category:'stationery',owner:'jonathan',locationId:'home',portable:true,source:{type:'received'}}}]}); assert(r.accepted===1,'Validated generic item was not accepted.'); assert(Object.values(e.state.entities).some(x=>x.name==='Small notebook'),'Generic item did not persist in world state.'); });
+    check('48 — Unsupported acquisition cannot create an object from assertion alone', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:48})); const r=e.applyMilestone4Resolution('I have a diamond crown',{world_effects:[{op:'create_entity',entity:{name:'Diamond crown',category:'valuable',owner:'jonathan',locationId:'home',source:{type:'asserted'}}}]}); assert(r.rejected===1,'Invalid acquisition source was not rejected.'); assert(!Object.values(e.state.entities).some(x=>/diamond crown/i.test(x.name)),'Rejected object still entered objective state.'); });
+    check('49 — AI condition effects can update Milestone 4 needs beyond the original three stats', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:49})); const before=e.state.player.condition.hydration; e.applyAIActionResolution('drink water',{type:'action_resolution',possible:true,narrative:'You drink water.',duration_minutes:2,effects:{condition:{hydration:18}},world_effects:[]}); assert(e.state.player.condition.hydration>before,'Hydration delta was not applied.'); });
+    check('50 — New person can be met, number learned, then saved separately', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:50})); const made=e.createNPC({name:'Avery',occupation:'Barista',locationId:'home',source:{type:'met'}},'met'); assert(made.ok&&!made.npc.phone.numberKnown&&!made.npc.phone.contactSaved,'New NPC phone state was not separated.'); assert(e.learnPhoneNumber(made.npc.id,'exchanged').ok&&made.npc.phone.numberKnown,'Phone number was not learned.'); const r=e.perform('add Avery to contacts'); assert(r.results[0].ok!==false&&made.npc.phone.contactSaved,'Known number could not be saved as contact.'); });
+    check('51 — Fire produces smoke and a persistent urgent hazard', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:51})); e.setEnvironment('home',{fireLevel:30},'test'); e.advanceTime(60); assert(e.state.environments.home.smokeLevel>0,'Fire did not produce smoke.'); assert(e.state.urgentConditions.some(x=>x.id==='home_fire'&&x.active!==false),'Fire urgent condition missing.'); e.setEnvironment('home',{fireLevel:0},'test'); e.advanceTime(300); assert(!e.state.urgentConditions.some(x=>x.id==='home_fire'&&x.active!==false),'Fire urgent condition did not clear.'); });
+    check('52 — Containers must exist before an entity can be moved inside them', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:52})); const item=e.createEntity({name:'Paper bag',category:'container',owner:'jonathan',locationId:'home',portable:true,source:{type:'existing'}},'test').entity; const r=e.moveEntity(item.id,'home','imaginary_container'); assert(r.ok===false&&item.containerId==null,'Unknown container was accepted.'); });
+    check('53 — Staying awake long enough accumulates substantial sleep debt', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:53})); e.state.player.condition.awakeMinutes=16*60; const before=e.state.player.condition.sleepDebtHours; e.advanceTime(8*60); assert(e.state.player.condition.sleepDebtHours>=before+7.9,'Extended wakefulness did not accumulate expected sleep debt.'); assert(e.state.player.condition.energy<65,'Extended wakefulness did not meaningfully reduce energy.'); });
+    check('54 — Completed visit commitment releases the NPC back to baseline scheduling', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:54})); const c=e.createCommitment({npcId:'daniel',title:'Short visit',expectedAt:addMinutesISO(fixed,5),locationId:'home',activity:'visiting',durationMinutes:20,status:'confirmed'}); e.advanceTime(6); assert(c.status==='active','Commitment never became active.'); e.advanceTime(25); assert(c.status==='completed','Commitment did not complete after planned departure.'); assert(!e.state.npcs.daniel.current.scheduleOverride,'Schedule override remained after completed visit.'); });
+    check('55 — Custom environment properties persist for novel conditions', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:55})); e.setEnvironment('home',{properties:{strangeOdorSource:'paint',airFilterClogged:true}},'test'); const copy=JSON.parse(JSON.stringify(e.state)); assert(copy.environments.home.properties.airFilterClogged===true,'Custom environment property did not persist.'); });
+    check('56 — Text reply world effects can create a future commitment', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:56})); const event={id:'msgfx',type:'message_response',title:'Daniel reply',triggerAt:addMinutesISO(fixed,1),status:'queued',visibility:'hidden',npcId:'daniel',payload:{respondingTo:null,incomingBody:'Yeah, I can come by in about an hour.',topic:'plans',engineVersion:4,worldEffects:[{op:'create_commitment',commitment:{npcId:'daniel',title:'Daniel visits',expectedAt:addMinutesISO(fixed,60),locationId:'home',activity:'hanging out',duration_minutes:90,status:'confirmed'}}]}}; e.state.scheduledEvents.push(event); e.advanceTime(2); assert(e.state.commitments.some(c=>c.title==='Daniel visits'&&c.status==='confirmed'),'Text world effect did not persist a commitment.'); });
+
+    check('57 — Scheduled call commitment completes after the call is handled', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:57})); const c=e.createCommitment({npcId:'daniel',title:'Daniel calls',expectedAt:addMinutesISO(fixed,5),activity:'call Jonathan',kind:'call',durationMinutes:8,status:'confirmed'}); e.advanceTime(6); assert(c.status==='active','Call commitment did not activate.'); assert(e.state.ui.incomingCall&&e.state.ui.incomingCall.commitmentId===c.id,'Call commitment did not produce a linked incoming call.'); e.resolveIncomingCall('decline'); assert(c.status==='completed','Handled call commitment remained active.'); });
+
+    check('58 — Deterministic shower controls persist water-flow state', () => { const e=new SimulationEngine(createInitialState({startTime:fixed,seed:58})); e.perform('turn the shower on'); assert(e.environment('home').waterFlow===true,'Shower-on action did not persist water flow.'); e.perform('turn the shower off'); assert(e.environment('home').waterFlow===false,'Shower-off action did not clear water flow.'); });
+
     return report;
   }
 
@@ -2262,7 +2866,7 @@ button:disabled { opacity: .38; cursor: default; }
         const raw = localStorage.getItem(this.key);
         if (!raw) return null;
         const state = JSON.parse(raw);
-        if (!state || state.schemaVersion !== Core.SCHEMA_VERSION) throw new Error('Save schema is not compatible with this build.');
+        if (!state || !Number.isFinite(Number(state.schemaVersion)) || Number(state.schemaVersion) > Core.SCHEMA_VERSION) throw new Error('Save schema is newer than this build.');
         return state;
       } catch (err) { return { __loadError: err.message }; }
     }
@@ -2280,6 +2884,7 @@ button:disabled { opacity: .38; cursor: default; }
       this.calendarEventId = null;
       this.debugTests = null;
       this.toastTimer = null;
+      this.typingNpcId = null;
       this.renderLanding();
     }
 
@@ -2317,12 +2922,12 @@ button:disabled { opacity: .38; cursor: default; }
           <section class="landing-card">
             <div class="eyebrow">Persistent simulation</div>
             <h1>AI SANDBOX</h1>
-            <p>Realistic Life V1.3. Persistent simulation, contextual AI dialogue, social consequences, reminders, memories, and local saves.</p>
+            <p>Realistic Life V1.4. Persistent world state, causal consequences, contextual AI dialogue, evolving relationships, needs, schedules, and local saves.</p>
             <div class="landing-actions">
               <button class="primary" id="newGameBtn">NEW GAME</button>
               <button class="secondary" id="continueBtn" ${hasSave ? '' : 'disabled'}>CONTINUE</button>
             </div>
-            <div class="meta" style="margin-top:18px">Runs locally in this browser. No login, API key, or paid dependency.</div>
+            <div class="meta" style="margin-top:18px">Core simulation and saves run locally in this browser. Optional Luna dialogue/free-form interpretation uses your private owner-configured backend and API billing.</div>
           </section>
         </main>`;
       document.getElementById('newGameBtn').addEventListener('click', () => this.newGame());
@@ -2378,7 +2983,10 @@ button:disabled { opacity: .38; cursor: default; }
             </section>
           </main>
           <div class="composer-wrap">
-            <textarea class="composer" id="composer" rows="1" placeholder="Do or say anything…" aria-label="Do or say anything"></textarea>
+            <div class="composer-main">
+              <textarea class="composer" id="composer" rows="1" placeholder="Do or say anything…" aria-label="Do or say anything"></textarea>
+              <div class="composer-estimate" id="composerEstimate"></div>
+            </div>
             <button class="do-btn" id="doBtn">DO</button>
           </div>
           <nav class="bottom-nav" aria-label="Game sections">
@@ -2411,6 +3019,7 @@ button:disabled { opacity: .38; cursor: default; }
       document.getElementById('composer').addEventListener('keydown', e => {
         if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.submitComposer(); }
       });
+      document.getElementById('composer').addEventListener('input', e => this.updateComposerEstimate(e.target.value));
       document.querySelectorAll('.nav-btn').forEach(btn => btn.addEventListener('click', () => this.openDrawer(btn.dataset.tab)));
       document.getElementById('drawerClose').addEventListener('click', () => this.closeDrawer());
       document.getElementById('debugBtn').addEventListener('click', () => this.openDebug());
@@ -2437,10 +3046,21 @@ button:disabled { opacity: .38; cursor: default; }
       this.updateHeader();
       document.getElementById('sceneText').textContent = s.ui.lastNarrative;
       const alertArea=document.getElementById('alertArea');
-      if(alertArea){ const alert=(s.ui.pendingAlerts||[]).find(a=>!a.read); alertArea.innerHTML=alert?`<div class="alert-banner"><div><strong>${this.esc(alert.title||'Alert')}</strong><div>${this.esc(alert.text||'')}</div></div><button data-dismiss-alert="${this.esc(alert.id)}" aria-label="Dismiss alert">✕</button></div>`:''; const dismiss=alertArea.querySelector('[data-dismiss-alert]'); if(dismiss) dismiss.addEventListener('click',()=>{const a=(s.ui.pendingAlerts||[]).find(x=>x.id===dismiss.dataset.dismissAlert);if(a)a.read=true;this.persist();this.renderWorld();}); }
+      if(alertArea){
+        const urgent=(s.urgentConditions||[]).filter(u=>u.active!==false);
+        const incoming=s.ui.incomingCall;
+        const normal=(s.ui.pendingAlerts||[]).find(a=>!a.read);
+        const urgentHtml=urgent.length?`<div class="urgent-stack">${urgent.map(u=>`<div class="urgent-alert"><strong>URGENT</strong><div>${this.esc(u.text)}</div></div>`).join('')}</div>`:'';
+        const callNpc=incoming&&s.npcs[incoming.npcId];
+        const callHtml=callNpc?`<div class="incoming-call"><strong>Incoming call — ${this.esc(callNpc.name)}</strong><div class="meta" style="margin-top:4px">The call occurred as game time crossed ${this.esc(this.shortDate(incoming.startedAt))}.</div><div class="incoming-call-actions"><button class="primary" data-call-choice="answer">Answer</button><button class="secondary" data-call-choice="decline">Decline</button><button class="ghost" data-call-choice="ignore">Ignore</button></div></div>`:'';
+        const normalHtml=normal?`<div class="alert-banner"><div><strong>${this.esc(normal.title||'Alert')}</strong><div>${this.esc(normal.text||'')}</div></div><button data-dismiss-alert="${this.esc(normal.id)}" aria-label="Dismiss alert">✕</button></div>`:'';
+        alertArea.innerHTML=urgentHtml+callHtml+normalHtml;
+        const dismiss=alertArea.querySelector('[data-dismiss-alert]'); if(dismiss) dismiss.addEventListener('click',()=>{const a=(s.ui.pendingAlerts||[]).find(x=>x.id===dismiss.dataset.dismissAlert);if(a)a.read=true;this.persist();this.renderWorld();});
+        alertArea.querySelectorAll('[data-call-choice]').forEach(b=>b.addEventListener('click',()=>{ const r=this.engine.resolveIncomingCall(b.dataset.callChoice); if(r&&r.narrative){this.engine.state.ui.lastNarrative=r.narrative;} this.persist(); this.renderWorld(); }));
+      }
       const fb=document.getElementById('feedbackStrip'); if(fb){ const items=Array.isArray(s.ui.lastFeedback)?s.ui.lastFeedback:[]; fb.innerHTML=items.map(x=>`<span class="feedback-chip ${(x.tone||'')==='warn'?'warn':''}">${this.esc(typeof x==='string'?x:x.text)}</span>`).join(''); }
       const sug = document.getElementById('suggestions');
-      sug.innerHTML = s.ui.suggestions.map((x, i) => `<button class="suggestion" data-suggestion="${i}"><span class="cat">${this.esc(x.category)}</span><span class="txt">${this.esc(x.text)}</span></button>`).join('');
+      sug.innerHTML = s.ui.suggestions.map((x, i) => { const mins=x.uiAction?null:this.engine.estimateActionDuration(x.text); const timing=mins?this.durationLabel(mins):''; return `<button class="suggestion" data-suggestion="${i}"><span class="cat">${this.esc(x.category)}</span><span class="txt">${this.esc(x.text)}</span>${timing?`<span class="duration">${this.esc(timing)}</span>`:''}</button>`; }).join('');
       sug.querySelectorAll('[data-suggestion]').forEach(btn => btn.addEventListener('click', () => {
         const item = s.ui.suggestions[Number(btn.dataset.suggestion)];
         if (!item) return;
@@ -2449,6 +3069,16 @@ button:disabled { opacity: .38; cursor: default; }
         else this.runAction(item.text);
       }));
       if (this.drawer) this.renderDrawer();
+    }
+
+    durationLabel(minutes) {
+      const m=Math.max(1,Math.round(Number(minutes)||1)); const end=new Date(new Date(this.engine.state.world.now).getTime()+m*60000);
+      const amount=m>=60?`~${Math.floor(m/60)}h${m%60?` ${m%60}m`:''}`:`~${m} min`;
+      return `${amount} · ends around ${end.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'})}`;
+    }
+
+    updateComposerEstimate(text) {
+      const el=document.getElementById('composerEstimate'); if(!el||!this.engine)return; const raw=String(text||'').trim(); if(!raw){el.textContent='';return;} const mins=this.engine.estimateActionDuration(raw); el.textContent=mins?this.durationLabel(mins):'';
     }
 
     inferUIAction(item) {
@@ -2489,6 +3119,7 @@ button:disabled { opacity: .38; cursor: default; }
       const text = input.value.trim();
       if (!text) return;
       input.value = '';
+      this.updateComposerEstimate('');
       this.runAction(text);
     }
 
@@ -2560,9 +3191,13 @@ button:disabled { opacity: .38; cursor: default; }
         },
         presentNpcs,
         knownLocations: s.player.knownLocationIds.map(id => ({ id, name: s.locations[id] && s.locations[id].name })).filter(x => x.name),
-        activeSituations: s.activeSituations.filter(x => x.status === 'active').map(x => ({ id: x.id, title: x.title, involvedPeople: x.involvedPeople, knownInformation: x.knownInformation || [], deadlineAt: x.deadlineAt, urgency: x.urgency })),
+        activeSituations: s.activeSituations.filter(x => x.status === 'active' && x.playerKnows !== false).map(x => ({ id: x.id, title: x.title, involvedPeople: x.involvedPeople, knownInformation: x.knownInformation || [], deadlineAt: x.deadlineAt, urgency: x.urgency })),
+        entities: Object.values(s.entities||{}).filter(e=>e.locationId===s.world.playerLocationId||e.owner==='jonathan').slice(0,80).map(e=>({id:e.id,name:e.name,category:e.category,subtype:e.subtype,owner:e.owner,locationId:e.locationId,containerId:e.containerId,quantity:e.quantity,unit:e.unit,condition:e.condition,state:e.state,properties:e.properties})),
+        environment: s.environments&&s.environments[s.world.playerLocationId]||null,
+        activeCommitments: (s.commitments||[]).filter(c=>['confirmed','active'].includes(c.status)).slice(0,30),
+        urgentConditions: (s.urgentConditions||[]).filter(u=>u.active!==false).map(u=>({id:u.id,text:u.text,severity:u.severity})),
         implementationCapabilities: {
-          conditionDeltas: ['energy','hunger','stress'],
+          conditionDeltas: ['energy','hunger','stress','hydration','health','pain','hygiene','bladder','socialConnection','mood','focus','fitness','intimacyNeed','security','sleepDebtHours'],
           temporaryStatuses: true,
           statusModifiers: ['coordination','composure','driving'],
           relationships: ['trust','affection','respect','attraction','fear','resentment'],
@@ -2573,7 +3208,8 @@ button:disabled { opacity: .38; cursor: default; }
           consumables: { cannabis_flower: { unit:'g', quantity:s.player.consumables.cannabisFlower.quantity, lowThreshold:s.player.consumables.cannabisFlower.lowThreshold } },
           visibleFeedback: true,
           npcMemories: true,
-          arbitraryNewInventoryObjects: false,
+          genericWorldEffects: ['create_entity','update_entity','move_entity','consume_entity','remove_entity','transfer_entity','set_environment','create_npc','learn_phone_number','set_npc_presence','create_commitment','record_interaction','urgent_condition','clear_urgent_condition','schedule_event'],
+          arbitraryNewInventoryObjects: 'allowed only with plausible acquisition/source and deterministic validation',
           detailedMedicalSimulation: false,
           employmentPayrollIsDeterministicLocal: true,
         },
@@ -2735,17 +3371,24 @@ button:disabled { opacity: .38; cursor: default; }
         type: 'npc_reply',
         worldTime: s.world.now,
         playerName: s.player.name,
+        playerCurrentLocation: { id:s.world.playerLocationId, name:s.locations[s.world.playerLocationId]&&s.locations[s.world.playerLocationId].name },
+        knownLocations: s.player.knownLocationIds.map(id=>({id,name:s.locations[id]&&s.locations[id].name})).filter(x=>x.name),
+        activeCommitments: (s.commitments||[]).filter(c=>c.involvedNpcIds&&c.involvedNpcIds.includes(npc.id)&&['confirmed','active'].includes(c.status)).slice(0,12),
         npc: {
           id: npc.id,
           name: npc.name,
           occupation: npc.occupation,
           personality: npc.personality,
           current: {
+            locationId: npc.current && npc.current.locationId,
+            locationName: npc.current && s.locations[npc.current.locationId] ? s.locations[npc.current.locationId].name : 'unknown',
             activity: npc.current && npc.current.activity,
             mood: npc.current && npc.current.mood,
             immediateGoal: npc.current && npc.current.immediateGoal,
+            scheduleOverride: npc.current && npc.current.scheduleOverride ? {reason:npc.current.scheduleOverride.reason,until:npc.current.scheduleOverride.until,activity:npc.current.scheduleOverride.activity,locationId:npc.current.scheduleOverride.locationId} : null,
           },
           relationship: npc.relationship,
+          relationshipDynamics: npc.relationshipDynamics || {},
           knowledge: {
             factsKnown: npc.knowledge && npc.knowledge.factsKnown || [],
             suspicions: npc.knowledge && npc.knowledge.suspicions || [],
@@ -2775,6 +3418,8 @@ button:disabled { opacity: .38; cursor: default; }
       const context = this.buildNPCDialogueContext(result.npcId, result.outgoingMessageId);
       if (!context) return false;
       try {
+        const pendingDelay=Math.max(0,minutesBetween(this.engine.state.world.now,event.triggerAt));
+        this.typingNpcId=pendingDelay<=10?result.npcId:null; if(this.drawer==='phone'&&this.phoneTab==='messages')this.renderDrawer();
         this.setAIStatus('requesting', endpoint);
         const response = await fetch(endpoint, {
           method: 'POST',
@@ -2798,11 +3443,14 @@ button:disabled { opacity: .38; cursor: default; }
         pending.payload.dialogueProvider = data.model || 'gpt-5.6-luna';
         pending.payload.aiGenerated = true;
         if (data && data.social) pending.payload.social = data.social;
+        if (data && Array.isArray(data.world_effects)) pending.payload.worldEffects = data.world_effects.slice(0,12);
         this.setAIStatus('connected', `${pending.payload.dialogueProvider}: ${reply.slice(0, 140)}`);
         this.engine.log('ai', `Remote dialogue prepared for ${this.engine.state.npcs[result.npcId].name} using ${pending.payload.dialogueProvider}.`);
+        this.typingNpcId=null; if(this.drawer==='phone'&&this.phoneTab==='messages')this.renderDrawer();
         this.persist();
         return true;
       } catch (err) {
+        this.typingNpcId=null; if(this.drawer==='phone'&&this.phoneTab==='messages')this.renderDrawer();
         console.warn('Remote dialogue unavailable; local fallback retained.', err);
         this.setAIStatus('error', err.message);
         this.engine.log('ai', `Remote dialogue unavailable; local fallback retained (${err.message}).`);
@@ -2855,18 +3503,27 @@ button:disabled { opacity: .38; cursor: default; }
           <div class="stat"><span class="meta">Location</span><strong>${this.esc(s.locations[s.world.playerLocationId].name)}</strong></div>
         </div>
         <div class="divider"></div>
+        <h3>Needs & condition</h3>
+        <div class="need-grid">${[
+          ['Energy',p.condition.energy,100],['Hunger',100-p.condition.hunger,100],['Hydration',p.condition.hydration,100],['Health',p.condition.health,100],
+          ['Hygiene',p.condition.hygiene,100],['Bladder',100-p.condition.bladder,100],['Social',p.condition.socialConnection,100],['Mood',p.condition.mood,100],
+          ['Focus',p.condition.focus,100],['Fitness',p.condition.fitness,100],['Intimacy',100-p.condition.intimacyNeed,100],['Security',p.condition.security,100]
+        ].map(([label,val,max])=>`<div class="need-meter"><div class="meta"><span>${this.esc(label)}</span><strong>${Math.round(Number(val||0))}</strong></div><div class="need-bar"><div class="need-fill" style="width:${Math.max(0,Math.min(100,Number(val||0)/max*100))}%"></div></div></div>`).join('')}</div>
+        <div class="card" style="margin-top:10px"><div class="row"><span>Sleep debt</span><strong>${Number(p.condition.sleepDebtHours||0).toFixed(1)} hr</strong></div><div class="row" style="margin-top:6px"><span>Stress</span><strong>${Math.round(Number(p.condition.stress||0))}</strong></div><div class="row" style="margin-top:6px"><span>Pain / discomfort</span><strong>${Math.round(Number(p.condition.pain||0))}</strong></div></div>
+        <div class="divider"></div>
         ${Array.isArray(p.condition.statusEffects) && p.condition.statusEffects.length ? `<div class="card"><h3>Current effects</h3>${p.condition.statusEffects.map(x => `<div class="skill-row"><span>${this.esc(x.label)} <span class="meta">(${this.esc(x.intensity || 'mild')})</span></span><strong>${this.esc(this.shortDate(x.expiresAt))}</strong></div>`).join('')}</div><div class="divider"></div>` : ''}
         ${p.condition.injured && p.condition.injuryNote ? `<div class="card"><h3>Injury</h3><p>${this.esc(p.condition.injuryNote)}</p></div><div class="divider"></div>` : ''}
         <div class="card"><h3>Employment</h3><p>${this.esc(p.employment.role)} · ${this.esc(p.employment.employer)} · ${formatMoney(p.employment.hourlyRate)}/hr</p><p>${this.esc(p.employment.scheduleSummary)}</p><div class="payroll-grid"><div><span class="meta">Pending gross</span><strong>${formatMoney(pendingGross)}</strong></div><div><span class="meta">Pending hours</span><strong>${(pending.reduce((a,x)=>a+x.minutes,0)/60).toFixed(2)}</strong></div></div></div>
         ${cannabis?`<div class="card"><h3>Cannabis flower</h3><p>${Number(cannabis.quantity||0).toFixed(2)} g on hand</p><p class="meta">CA market baseline: $8.54/g · $21.67/eighth (Aug 2026 baseline)</p></div>`:''}
         <div class="divider"></div>
         <h3>Carried</h3><div class="cards">${p.inventory.map(id => `<div class="card">${this.esc((p.possessions.find(x => x.id === id) || {name:id}).name)}</div>`).join('')}</div>
+        ${Object.values(s.entities||{}).filter(e=>e.owner==='jonathan'&&e.portable&&e.state!=='consumed').length?`<div class="divider"></div><h3>Dynamic items</h3><div class="cards">${Object.values(s.entities||{}).filter(e=>e.owner==='jonathan'&&e.portable&&e.state!=='consumed').map(e=>`<div class="card"><div class="row"><strong>${this.esc(e.name)}</strong><span class="pill">${this.esc(e.quantity)} ${this.esc(e.unit)}</span></div><p>${this.esc(e.containerId?`In ${e.containerId}`:`At ${e.locationId}`)} · ${this.esc(e.condition)}</p></div>`).join('')}</div>`:''}
         <div class="divider"></div>
         <div class="skill-groups">${Object.entries(groups).map(([name, keys]) => `<div class="card"><h3>${name}</h3>${keys.map(k => `<div class="skill-row"><span>${this.pretty(k)}</span><strong>${skillDescriptor(p.skills[k])}</strong></div>`).join('')}</div>`).join('')}</div>`;
     }
 
     phoneHTML() {
-      const tabs = ['messages','bank','calendar','contacts','notes'];
+      const tabs = ['messages','calls','bank','calendar','contacts','notes'];
       return `<div class="subtabs">${tabs.map(t => `<button class="subtab ${this.phoneTab === t ? 'active':''}" data-phone-tab="${t}">${t.toUpperCase()}</button>`).join('')}</div><div id="phoneContent">${this.phoneTabContent()}</div>`;
     }
 
@@ -2875,13 +3532,16 @@ button:disabled { opacity: .38; cursor: default; }
       if (this.phoneTab === 'messages') {
         if (this.phoneThread) {
           const npc = s.npcs[this.phoneThread]; const msgs = s.messages[npc.phone.threadId] || [];
-          return `<button class="ghost" data-thread-back>← Threads</button><h3>${this.esc(npc.name)}</h3><div class="message-list">${msgs.map(m => `<div class="bubble ${m.senderId === 'jonathan' ? 'out':'in'}">${this.esc(m.body)}<span class="bubble-time">${this.shortDate(m.at)}</span></div>`).join('')}</div><div class="inline-compose"><input id="threadInput" placeholder="Message ${this.esc(npc.name)}" /><button data-send-thread="${npc.id}">Send</button></div>`;
+          return `<div class="thread-sticky-head"><button class="ghost" data-thread-back>← Messages</button><strong style="margin-left:10px">${this.esc(npc.name)}</strong></div><div class="message-list">${msgs.map(m => `<div class="bubble ${m.senderId === 'jonathan' ? 'out':'in'}">${this.esc(m.body)}<span class="bubble-time">${this.shortDate(m.at)}</span></div>`).join('')}${this.typingNpcId===npc.id?`<div class="typing-bubble">${this.esc(npc.name)} is typing<span class="typing-dots"></span></div>`:''}</div><div class="inline-compose"><input id="threadInput" placeholder="Message ${this.esc(npc.name)}" /><button data-send-thread="${npc.id}">Send</button></div>`;
         }
         const rows = Object.values(s.npcs).filter(n => n.phone && n.phone.contactSaved).map(npc => {
           const msgs = s.messages[npc.phone.threadId] || []; const last = msgs[msgs.length - 1]; const unread = msgs.some(m => m.recipientId === 'jonathan' && !m.read);
           return `<button class="thread ${unread ? 'unread':''}" data-open-thread="${npc.id}"><div class="row"><strong>${this.esc(npc.name)}</strong>${unread ? '<span class="pill">Unread</span>':''}</div><div class="thread-preview">${last ? this.esc(last.body) : 'No messages'}</div></button>`;
         }).join('');
         return `<div class="thread-list">${rows}</div>`;
+      }
+      if (this.phoneTab === 'calls') {
+        const calls=s.phoneCalls||[]; return `<div class="cards">${calls.length?calls.slice(0,60).map(c=>{const n=s.npcs[c.npcId];return `<div class="card"><div class="row"><strong>${this.esc(n?n.name:'Unknown')}</strong><span class="pill">${this.esc(c.status)}</span></div><div class="meta" style="margin-top:6px">${this.shortDate(c.at)}</div></div>`;}).join(''):'<p class="meta">No calls yet.</p>'}</div>`;
       }
       if (this.phoneTab === 'bank') {
         const tx = s.bankTransactions.slice().reverse();
@@ -2899,7 +3559,9 @@ button:disabled { opacity: .38; cursor: default; }
         return `<div class="cards">${events.map(e => `<button class="card" style="text-align:left;color:inherit" data-calendar-event="${this.esc(e.id)}"><div class="row"><strong>${this.esc(e.title)}</strong><span class="event-status ${this.esc(e.status)}">${this.esc(e.status)}</span></div><p>${this.shortDate(e.triggerAt)}${e.locationId&&s.locations[e.locationId]?` · ${this.esc(s.locations[e.locationId].name)}`:''}</p>${e.reminderMinutes!=null?`<div class="meta">Reminder enabled</div>`:''}</button>`).join('') || '<p class="meta">No calendar events.</p>'}</div>`;
       }
       if (this.phoneTab === 'contacts') {
-        return `<div class="cards">${s.contacts.map(c => `<div class="card"><h3>${this.esc(c.name)}</h3><p>${this.esc(s.npcs[c.npcId].occupation)}</p><button class="secondary" data-open-thread="${c.npcId}" style="margin-top:10px">Message</button></div>`).join('')}</div>`;
+        const saved=s.contacts.map(c=>{const n=s.npcs[c.npcId];if(!n)return'';return `<div class="card"><h3>${this.esc(c.name)}</h3><p>${this.esc(n.occupation||'')}</p><div class="contact-actions"><button class="secondary" data-open-thread="${c.npcId}">Message</button><button class="ghost" data-rename-contact="${c.npcId}">Rename</button><button class="ghost" data-block-contact="${c.npcId}">${n.phone.blocked?'Unblock':'Block'}</button><button class="danger" data-remove-contact="${c.npcId}">Remove</button></div></div>`;}).join('');
+        const addable=Object.values(s.npcs).filter(n=>n.phone&&n.phone.numberKnown&&!n.phone.contactSaved); const addHtml=addable.length?`<div class="divider"></div><h3>Numbers you know</h3><div class="cards">${addable.map(n=>`<div class="card"><div class="row"><div><strong>${this.esc(n.name)}</strong><div class="meta">Not saved</div></div><button class="secondary" data-add-contact="${n.id}">Add</button></div></div>`).join('')}</div>`:'';
+        return `<div class="cards">${saved||'<p class="meta">No saved contacts.</p>'}</div>${addHtml}`;
       }
       if (this.phoneTab === 'notes') {
         return `<div class="inline-compose"><input id="noteInput" placeholder="Write a note" /><button data-add-note>Add</button></div><div class="divider"></div><div class="cards">${s.journal.playerNotes.slice().reverse().map(n => `<div class="card"><div>${this.esc(n.text)}</div><div class="meta">${this.shortDate(n.at)}</div></div>`).join('') || '<p class="meta">No notes yet.</p>'}</div>`;
@@ -2917,7 +3579,7 @@ button:disabled { opacity: .38; cursor: default; }
 
     peopleHTML() {
       const s = this.engine.state;
-      return `<div class="cards">${Object.values(s.npcs).map(n => {
+      return `<div class="cards">${Object.values(s.npcs).filter(n=>n.playerKnows!==false).map(n => {
         const view = publicNPCView(n);
         const lastInteraction = n.memories.filter(m => m.people.includes('jonathan') && !m.secret).slice(-1)[0];
         return `<div class="card"><div class="row"><div><h3>${this.esc(view.name)}</h3><span class="meta">${this.esc(view.relationship)}</span></div><span class="pill">${this.esc(view.generalTone)}</span></div><p>Works as: ${this.esc(view.occupation)}</p><p>Trust: ${this.esc(view.trust)}</p>${n.publicSignal?`<p><strong>Recent dynamic:</strong> ${this.esc(n.publicSignal.text)}</p>`:''}${lastInteraction ? `<p>Last remembered interaction: ${this.esc(this.shortDate(lastInteraction.timestamp))}</p>`:''}</div>`;
@@ -2952,6 +3614,10 @@ button:disabled { opacity: .38; cursor: default; }
         const npc = this.engine.state.npcs[b.dataset.sendThread]; this.runAction(`Text ${npc.name}: ${body}`); this.phoneThread = npc.id; this.renderDrawer();
       }));
       const threadInput = document.getElementById('threadInput'); if (threadInput) threadInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); document.querySelector('[data-send-thread]').click(); } });
+      document.querySelectorAll('[data-add-contact]').forEach(b=>b.addEventListener('click',()=>{const n=this.engine.state.npcs[b.dataset.addContact];if(n){n.phone.contactSaved=true;if(!this.engine.state.contacts.some(c=>c.npcId===n.id))this.engine.state.contacts.push({npcId:n.id,name:n.name,phone:'saved'});this.persist('Contact added');this.renderDrawer();}}));
+      document.querySelectorAll('[data-remove-contact]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.removeContact,n=this.engine.state.npcs[id];this.engine.state.contacts=this.engine.state.contacts.filter(c=>c.npcId!==id);if(n)n.phone.contactSaved=false;this.persist('Contact removed');this.renderDrawer();}));
+      document.querySelectorAll('[data-block-contact]').forEach(b=>b.addEventListener('click',()=>{const n=this.engine.state.npcs[b.dataset.blockContact];if(n){n.phone.blocked=!n.phone.blocked;this.persist(n.phone.blocked?'Contact blocked':'Contact unblocked');this.renderDrawer();}}));
+      document.querySelectorAll('[data-rename-contact]').forEach(b=>b.addEventListener('click',()=>{const id=b.dataset.renameContact,c=this.engine.state.contacts.find(x=>x.npcId===id);if(!c)return;const name=prompt('Contact name',c.name);if(name&&name.trim()){c.name=name.trim().slice(0,60);this.persist('Contact renamed');this.renderDrawer();}}));
       document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => {
         const loc = this.engine.state.locations[b.dataset.go]; this.closeDrawer(); this.runAction(`Drive to ${loc.name}`);
       }));
@@ -2979,8 +3645,10 @@ button:disabled { opacity: .38; cursor: default; }
       const usageHtml = lastUsage
         ? `<div class="divider"></div><h3 style="margin-bottom:8px">Luna usage</h3><div class="debug-summary"><div class="stat"><span class="meta">Last input</span><strong>${lastUsage.inputTokens.toLocaleString()} tokens</strong></div><div class="stat"><span class="meta">Last output</span><strong>${lastUsage.outputTokens.toLocaleString()} tokens</strong></div><div class="stat"><span class="meta">Last estimated cost</span><strong>${this.formatAICost(lastUsage.estimatedCost)}</strong></div><div class="stat"><span class="meta">Browser total</span><strong>${this.formatAICost(usage.estimatedCost)}</strong></div></div><div class="meta">${usage.requests} API request${usage.requests === 1 ? '' : 's'} tracked · ${usage.inputTokens.toLocaleString()} input · ${usage.outputTokens.toLocaleString()} output${usage.cachedInputTokens ? ` · ${usage.cachedInputTokens.toLocaleString()} cached input` : ''}. Cost is an estimate using current GPT-5.6 Luna standard token rates.</div>`
         : `<div class="divider"></div><div class="meta">Luna usage: waiting for the backend to return token usage.</div>`;
-      const aiCard = `<div class="card"><h3>AI — Milestone 3 owner access</h3><p class="meta">Public players use local fallbacks by default. GPT-5.6 Luna handles owner NPC dialogue and ambiguous free-form actions; requests require your private owner token. The token is stored only in this browser and is never committed to GitHub.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://vercel-dialogue-api-project.vercel.app/api/dialogue" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div class="inline-compose" style="margin-top:8px"><input id="aiAccessTokenInput" type="password" autocomplete="off" placeholder="Owner access token" value="${this.esc(aiAccessToken)}" /><button id="aiAccessTokenSave">Save token</button></div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="secondary" id="aiEndpointTest">Test connection</button><button class="ghost" id="aiUsageReset">Reset usage counter</button></div><div class="meta" style="margin-top:8px">Endpoint: ${this.esc(aiEndpoint || 'none')}</div><div class="meta" style="margin-top:4px">Owner token: ${aiAccessToken ? 'configured on this device' : 'not configured — Luna disabled'}</div><div class="meta" style="margin-top:4px">Last AI status: ${this.esc(statusText)}</div>${usageHtml}</div><div class="divider"></div>`;
-      el.innerHTML = `${tests}${aiCard}<div class="debug-summary"><div class="stat"><span class="meta">World time</span><strong>${this.esc(s.world.now)}</strong></div><div class="stat"><span class="meta">Turn</span><strong>${s.meta.turn}</strong></div><div class="stat"><span class="meta">Queued events</span><strong>${queued}</strong></div><div class="stat"><span class="meta">Log entries</span><strong>${s.simulationLog.length}</strong></div></div><h3>Complete internal state</h3><pre class="debug-pre">${this.esc(JSON.stringify(s, null, 2))}</pre>`;
+      const aiCard = `<div class="card"><h3>AI — Milestone 4 owner access</h3><p class="meta">Public players use local fallbacks by default. GPT-5.6 Luna handles owner NPC dialogue and ambiguous free-form actions; requests require your private owner token. The token is stored only in this browser and is never committed to GitHub.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://vercel-dialogue-api-project.vercel.app/api/dialogue" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div class="inline-compose" style="margin-top:8px"><input id="aiAccessTokenInput" type="password" autocomplete="off" placeholder="Owner access token" value="${this.esc(aiAccessToken)}" /><button id="aiAccessTokenSave">Save token</button></div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="secondary" id="aiEndpointTest">Test connection</button><button class="ghost" id="aiUsageReset">Reset usage counter</button></div><div class="meta" style="margin-top:8px">Endpoint: ${this.esc(aiEndpoint || 'none')}</div><div class="meta" style="margin-top:4px">Owner token: ${aiAccessToken ? 'configured on this device' : 'not configured — Luna disabled'}</div><div class="meta" style="margin-top:4px">Last AI status: ${this.esc(statusText)}</div>${usageHtml}</div><div class="divider"></div>`;
+      const npcDebug=Object.values(s.npcs).map(n=>({id:n.id,locationId:n.current.locationId,activity:n.current.activity,scheduleOverride:n.current.scheduleOverride,nextCommitment:(s.commitments||[]).filter(c=>c.involvedNpcIds&&c.involvedNpcIds.includes(n.id)&&['confirmed','active'].includes(c.status)).sort((a,b)=>new Date(a.expectedAt)-new Date(b.expectedAt))[0]||null,relationship:n.relationship,dynamics:n.relationshipDynamics}));
+      const m4Debug={entities:s.entities,environments:s.environments,activeHazards:(s.urgentConditions||[]).filter(x=>x.active!==false),commitments:s.commitments,npcs:npcDebug,needs:s.player.condition,causalHistory:(s.causalHistory||[]).slice(-40),lastWorldEffects:s.ui.lastWorldEffects};
+      el.innerHTML = `${tests}${aiCard}<div class="debug-summary"><div class="stat"><span class="meta">World time</span><strong>${this.esc(s.world.now)}</strong></div><div class="stat"><span class="meta">Turn</span><strong>${s.meta.turn}</strong></div><div class="stat"><span class="meta">Queued events</span><strong>${queued}</strong></div><div class="stat"><span class="meta">Log entries</span><strong>${s.simulationLog.length}</strong></div></div><h3>Milestone 4 world / causality</h3><pre class="debug-pre">${this.esc(JSON.stringify(m4Debug,null,2))}</pre><div class="divider"></div><h3>Complete internal state</h3><pre class="debug-pre">${this.esc(JSON.stringify(s, null, 2))}</pre>`;
       const aiSave = document.getElementById('aiEndpointSave');
       if (aiSave) aiSave.addEventListener('click', () => {
         const input = document.getElementById('aiEndpointInput');
@@ -3049,7 +3717,7 @@ button:disabled { opacity: .38; cursor: default; }
       reader.onload = () => {
         try {
           const data = JSON.parse(reader.result);
-          if (data.schemaVersion !== Core.SCHEMA_VERSION) throw new Error('Incompatible save version');
+          if (!data || !Number.isFinite(Number(data.schemaVersion)) || Number(data.schemaVersion) > Core.SCHEMA_VERSION) throw new Error('Incompatible save version');
           this.engine = new SimulationEngine(data, new LocalNarrativeProvider()); this.persist('Save imported'); this.closeDebug(); this.renderGame();
         } catch (err) { this.toast(`Import failed: ${err.message}`); }
       };
