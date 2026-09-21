@@ -839,19 +839,24 @@ button:disabled { opacity: .38; cursor: default; }
 
       const replyPlan = this.composeReply(npc, action.body, thread, msg.id, analysis);
       const delay = this.replyDelayMinutes(npc, analysis);
+      const replyEventId = makeId('evt', s);
       s.scheduledEvents.push({
-        id: makeId('evt', s), type: 'message_response', title: `${npc.name} reply`,
+        id: replyEventId, type: 'message_response', title: `${npc.name} reply`,
         triggerAt: addMinutesISO(s.world.now, delay), deadlineAt: null, status: 'queued', visibility: 'hidden', npcId: npc.id,
         payload: {
           respondingTo: msg.id, incomingBody: replyPlan.body, topic: replyPlan.topic,
           intent: replyPlan.intent, memoryEvent: replyPlan.memoryEvent || null, engineVersion: 2,
+          dialogueProvider: 'local-context-v2',
         },
       });
 
       if (/thank|appreciate|checking on you|hope you're okay|how are you|sorry/i.test(action.body)) {
         this.changeRelationship(npc.id, { trust: 1, affection: 1 }, `Jonathan sent a considerate message: "${action.body}"`);
       }
-      return { ok: true, type: action.type, minutes: 1, narrative: `You text ${npc.name}: “${action.body}”` };
+      return {
+        ok: true, type: action.type, minutes: 1, narrative: `You text ${npc.name}: “${action.body}”`,
+        npcId: npc.id, outgoingMessageId: msg.id, replyEventId,
+      };
     }
 
     normalizeDialogueText(text) {
@@ -1750,19 +1755,124 @@ button:disabled { opacity: .38; cursor: default; }
       this.runAction(text);
     }
 
-    runAction(text) {
+    async runAction(text) {
       const btn = document.getElementById('doBtn');
       if (btn) btn.disabled = true;
       try {
-        this.engine.perform(text);
+        const outcome = this.engine.perform(text);
         this.persist();
         this.renderWorld();
         window.scrollTo({ top: 0, behavior: 'smooth' });
+
+        // If this turn sent a text, opportunistically upgrade the queued local
+        // fallback reply with a remote language-model reply. The simulation does
+        // not depend on the model: if the request fails, the local contextual
+        // dialogue already stored in the event remains in place.
+        const textResults = (outcome && outcome.results || []).filter(r => r && r.type === 'text' && r.outgoingMessageId);
+        for (const result of textResults) {
+          await this.tryRemoteDialogue(result);
+        }
       } catch (err) {
         console.error(err);
         this.toast(`Action error: ${err.message}`);
       } finally {
         if (btn) btn.disabled = false;
+      }
+    }
+
+    getAIEndpoint() {
+      try { return (localStorage.getItem('aiSandboxAiEndpoint') || '').trim(); }
+      catch (_) { return ''; }
+    }
+
+    setAIEndpoint(value) {
+      const clean = String(value || '').trim().replace(/\/$/, '');
+      try {
+        if (clean) localStorage.setItem('aiSandboxAiEndpoint', clean);
+        else localStorage.removeItem('aiSandboxAiEndpoint');
+      } catch (_) {}
+      return clean;
+    }
+
+    buildNPCDialogueContext(npcId, outgoingMessageId) {
+      const s = this.engine.state;
+      const npc = s.npcs[npcId];
+      if (!npc || !npc.phone) return null;
+      const thread = (s.messages[npc.phone.threadId] || []).slice(-14).map(m => ({
+        sender: m.senderId === 'jonathan' ? 'Jonathan' : npc.name,
+        text: m.body,
+        at: m.at,
+      }));
+      const message = (s.messages[npc.phone.threadId] || []).find(m => m.id === outgoingMessageId);
+      const situations = s.activeSituations
+        .filter(x => x.status === 'active' && Array.isArray(x.involvedPeople) && x.involvedPeople.includes(npc.id))
+        .map(x => ({ title: x.title, knownInformation: x.knownInformation || [], urgency: x.urgency || 'normal' }));
+      const memories = (npc.memories || []).slice(-8).map(m => ({
+        event: m.event, timestamp: m.timestamp, importance: m.importance, consequences: m.consequences || []
+      }));
+      return {
+        type: 'npc_reply',
+        worldTime: s.world.now,
+        playerName: s.player.name,
+        npc: {
+          id: npc.id,
+          name: npc.name,
+          occupation: npc.occupation,
+          personality: npc.personality,
+          current: {
+            activity: npc.current && npc.current.activity,
+            mood: npc.current && npc.current.mood,
+            immediateGoal: npc.current && npc.current.immediateGoal,
+          },
+          relationship: npc.relationship,
+          knowledge: {
+            factsKnown: npc.knowledge && npc.knowledge.factsKnown || [],
+            suspicions: npc.knowledge && npc.knowledge.suspicions || [],
+            falseBeliefs: npc.knowledge && npc.knowledge.falseBeliefs || [],
+            secretsKnown: npc.knowledge && npc.knowledge.secretsKnown || [],
+          },
+          beliefs: npc.beliefs || {},
+          memories,
+          unresolvedProblems: npc.plans && npc.plans.unresolvedProblems || [],
+        },
+        activeSituations: situations,
+        recentThread: thread,
+        latestPlayerMessage: message ? message.body : '',
+      };
+    }
+
+    async tryRemoteDialogue(result) {
+      const endpoint = this.getAIEndpoint();
+      if (!endpoint || !result || !result.replyEventId) return false;
+      const event = this.engine.state.scheduledEvents.find(e => e.id === result.replyEventId && e.status === 'queued');
+      if (!event) return false;
+      const context = this.buildNPCDialogueContext(result.npcId, result.outgoingMessageId);
+      if (!context) return false;
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(context),
+        });
+        if (!response.ok) throw new Error(`AI endpoint ${response.status}`);
+        const data = await response.json();
+        const reply = String(data && data.reply || '').trim();
+        if (!reply || reply.length > 1200) throw new Error('AI returned an invalid reply');
+
+        // Re-check because game state may have advanced while the network request was pending.
+        const pending = this.engine.state.scheduledEvents.find(e => e.id === result.replyEventId && e.status === 'queued');
+        if (!pending) return false;
+        pending.payload.incomingBody = reply;
+        pending.payload.dialogueProvider = data.model || 'remote-ai';
+        pending.payload.aiGenerated = true;
+        this.engine.log('ai', `Remote dialogue prepared for ${this.engine.state.npcs[result.npcId].name} using ${pending.payload.dialogueProvider}.`);
+        this.persist();
+        return true;
+      } catch (err) {
+        console.warn('Remote dialogue unavailable; local fallback retained.', err);
+        this.engine.log('ai', `Remote dialogue unavailable; local fallback retained (${err.message}).`);
+        this.persist();
+        return false;
       }
     }
 
@@ -1903,7 +2013,16 @@ button:disabled { opacity: .38; cursor: default; }
       const s = this.engine.state; const el = document.getElementById('debugContent'); if (!el) return;
       const tests = this.debugTests ? `<div class="card"><h3>Acceptance tests</h3>${this.debugTests.map(t => `<div class="skill-row"><span>${this.esc(t.name)}</span><strong class="${t.pass ? 'test-pass':'test-fail'}">${t.pass ? 'PASS':'FAIL'}</strong></div><div class="meta" style="margin-bottom:8px">${this.esc(t.detail)}</div>`).join('')}</div><div class="divider"></div>` : '';
       const queued = s.scheduledEvents.filter(e => e.status === 'queued' || e.status === 'started').length;
-      el.innerHTML = `${tests}<div class="debug-summary"><div class="stat"><span class="meta">World time</span><strong>${this.esc(s.world.now)}</strong></div><div class="stat"><span class="meta">Turn</span><strong>${s.meta.turn}</strong></div><div class="stat"><span class="meta">Queued events</span><strong>${queued}</strong></div><div class="stat"><span class="meta">Log entries</span><strong>${s.simulationLog.length}</strong></div></div><h3>Complete internal state</h3><pre class="debug-pre">${this.esc(JSON.stringify(s, null, 2))}</pre>`;
+      const aiEndpoint = this.getAIEndpoint();
+      const aiCard = `<div class="card"><h3>AI dialogue (optional)</h3><p class="meta">Leave blank to use the free local dialogue engine only. Add your Cloudflare Worker URL to use GPT-5.6 Luna for NPC text replies while keeping the OpenAI API key off this page.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://your-worker.workers.dev" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div class="meta" style="margin-top:8px">Status: ${aiEndpoint ? 'GPT-5.6 Luna endpoint configured; local fallback remains enabled.' : 'Local dialogue only.'}</div></div><div class="divider"></div>`;
+      el.innerHTML = `${tests}${aiCard}<div class="debug-summary"><div class="stat"><span class="meta">World time</span><strong>${this.esc(s.world.now)}</strong></div><div class="stat"><span class="meta">Turn</span><strong>${s.meta.turn}</strong></div><div class="stat"><span class="meta">Queued events</span><strong>${queued}</strong></div><div class="stat"><span class="meta">Log entries</span><strong>${s.simulationLog.length}</strong></div></div><h3>Complete internal state</h3><pre class="debug-pre">${this.esc(JSON.stringify(s, null, 2))}</pre>`;
+      const aiSave = document.getElementById('aiEndpointSave');
+      if (aiSave) aiSave.addEventListener('click', () => {
+        const input = document.getElementById('aiEndpointInput');
+        const value = this.setAIEndpoint(input && input.value);
+        this.toast(value ? 'AI endpoint saved' : 'AI endpoint cleared');
+        this.renderDebug();
+      });
     }
 
     exportSave() {
