@@ -718,7 +718,7 @@ button:disabled { opacity: .38; cursor: default; }
       this.interpreter = new ActionInterpreter();
       this.state.dialogue = this.state.dialogue || { version: 2, threads: {} };
       this.state.dialogue.version = 2;
-      this.state.meta.provider = 'local-context-v2';
+      this.state.meta.provider = 'hybrid-context-v3';
       if (!this.state.ui.lastNarrative) {
         this.state.ui.lastNarrative = this.provider.generateScene(this.state, null);
         this.state.ui.suggestions = this.provider.generateSuggestions(this.state);
@@ -1810,6 +1810,10 @@ button:disabled { opacity: .38; cursor: default; }
       const memories = (npc.memories || []).slice(-8).map(m => ({
         event: m.event, timestamp: m.timestamp, importance: m.importance, consequences: m.consequences || []
       }));
+      // Keep this payload aligned with the Vercel /api/dialogue contract.
+      // The backend expects recentMessages, playerMessage, and knownSituations.
+      // We also retain the older aliases for backwards compatibility with any
+      // previously deployed worker/backend version.
       return {
         type: 'npc_reply',
         worldTime: s.world.now,
@@ -1835,6 +1839,10 @@ button:disabled { opacity: .38; cursor: default; }
           memories,
           unresolvedProblems: npc.plans && npc.plans.unresolvedProblems || [],
         },
+        recentMessages: thread,
+        playerMessage: message ? message.body : '',
+        knownSituations: situations,
+        // Legacy aliases. Safe to remove after every backend is on the new contract.
         activeSituations: situations,
         recentThread: thread,
         latestPlayerMessage: message ? message.body : '',
@@ -2014,7 +2022,7 @@ button:disabled { opacity: .38; cursor: default; }
       const tests = this.debugTests ? `<div class="card"><h3>Acceptance tests</h3>${this.debugTests.map(t => `<div class="skill-row"><span>${this.esc(t.name)}</span><strong class="${t.pass ? 'test-pass':'test-fail'}">${t.pass ? 'PASS':'FAIL'}</strong></div><div class="meta" style="margin-bottom:8px">${this.esc(t.detail)}</div>`).join('')}</div><div class="divider"></div>` : '';
       const queued = s.scheduledEvents.filter(e => e.status === 'queued' || e.status === 'started').length;
       const aiEndpoint = this.getAIEndpoint();
-      const aiCard = `<div class="card"><h3>AI dialogue (optional)</h3><p class="meta">Leave blank to use the free local dialogue engine only. Add your Cloudflare Worker URL to use GPT-5.6 Luna for NPC text replies while keeping the OpenAI API key off this page.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://your-worker.workers.dev" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div class="meta" style="margin-top:8px">Status: ${aiEndpoint ? 'GPT-5.6 Luna endpoint configured; local fallback remains enabled.' : 'Local dialogue only.'}</div></div><div class="divider"></div>`;
+      const aiCard = `<div class="card"><h3>AI dialogue (optional)</h3><p class="meta">Leave blank to use the free local dialogue engine only. Add your Vercel API endpoint to use GPT-5.6 Luna for NPC text replies while keeping the OpenAI API key off this page.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://vercel-dialogue-api-project.vercel.app/api/dialogue" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div class="meta" style="margin-top:8px">Status: ${aiEndpoint ? 'GPT-5.6 Luna endpoint configured; local fallback remains enabled.' : 'Local dialogue only.'}</div></div><div class="divider"></div>`;
       el.innerHTML = `${tests}${aiCard}<div class="debug-summary"><div class="stat"><span class="meta">World time</span><strong>${this.esc(s.world.now)}</strong></div><div class="stat"><span class="meta">Turn</span><strong>${s.meta.turn}</strong></div><div class="stat"><span class="meta">Queued events</span><strong>${queued}</strong></div><div class="stat"><span class="meta">Log entries</span><strong>${s.simulationLog.length}</strong></div></div><h3>Complete internal state</h3><pre class="debug-pre">${this.esc(JSON.stringify(s, null, 2))}</pre>`;
       const aiSave = document.getElementById('aiEndpointSave');
       if (aiSave) aiSave.addEventListener('click', () => {
