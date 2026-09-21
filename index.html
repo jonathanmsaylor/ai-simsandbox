@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#0c1016" />
-<title>AI Sandbox — Realistic Life V1.2</title>
+<title>AI Sandbox — Realistic Life V1.3</title>
 <style>
 :root {
   color-scheme: dark;
@@ -260,6 +260,9 @@ button:disabled { opacity: .38; cursor: default; }
 .recent-entry { border-left:3px solid rgba(121,168,255,.35); }
 .recent-entry .recent-kind { text-transform:uppercase; letter-spacing:.08em; font-size:10px; color:var(--accent-2); font-weight:800; }
 .payroll-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:10px; }
+.alert-banner { border:1px solid rgba(255,198,109,.35); background:rgba(255,198,109,.09); border-radius:14px; padding:12px 14px; margin-bottom:12px; display:flex; gap:10px; align-items:flex-start; justify-content:space-between; }
+.alert-banner strong { display:block; margin-bottom:3px; }
+.alert-banner button { border:1px solid var(--line); background:transparent; border-radius:9px; color:var(--muted); min-width:34px; height:34px; }
 
 
 .toast { position: fixed; z-index: 80; left: 50%; top: 18px; transform: translateX(-50%); background: #202c3e; border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 999px; padding: 10px 14px; font-size: 12px; }
@@ -440,6 +443,37 @@ button:disabled { opacity: .38; cursor: default; }
     if (!state.npcs.eli) state.npcs.eli = { id:'eli', name:'Eli', age:null, occupation:'Cannabis contact', homeLocationId:'unknown', personality:{traits:['casual','low-pressure','businesslike'],temperament:'easygoing',conversationalStyle:'brief',preferences:['simple plans'],dislikes:['being strung along']}, current:{locationId:'unknown',activity:'going about the day',mood:'neutral',money:null,immediateGoal:'handle regular customers',longTermGoals:[]}, relationship:{label:'Cannabis Contact',trust:48,affection:20,respect:50,attraction:0,fear:0,resentment:0,familiarity:45}, knowledge:{factsKnown:['Jonathan sometimes buys cannabis'],suspicions:[],falseBeliefs:[],secretsKnown:[],unknownTopics:['Jonathan exact cannabis inventory']}, beliefs:{}, memories:[], plans:{scheduleType:'untracked',upcomingCommitments:[],personalGoals:[],unresolvedProblems:[]}, phone:{contactSaved:true,threadId:'thread_eli'} };
     if (!state.contacts.some(c=>c.npcId==='eli')) state.contacts.push({npcId:'eli',name:'Eli',phone:'saved'});
     state.messages.thread_eli = state.messages.thread_eli || [];
+
+    // Milestone 3 migration: player-knowledge gating, calendar reminders, and social signals.
+    state.meta = state.meta || {};
+    state.meta.milestone = Math.max(3, Number(state.meta.milestone || 0));
+    state.ui.pendingAlerts = Array.isArray(state.ui.pendingAlerts) ? state.ui.pendingAlerts : [];
+    state.activeSituations = Array.isArray(state.activeSituations) ? state.activeSituations : [];
+    for (const sit of state.activeSituations) {
+      if (sit.playerKnows == null) sit.playerKnows = true;
+      if (!Object.prototype.hasOwnProperty.call(sit, 'discoveredAt')) sit.discoveredAt = sit.playerKnows ? (state.meta.createdAt || state.world.now) : null;
+      if (!Object.prototype.hasOwnProperty.call(sit, 'discoverySource')) sit.discoverySource = sit.playerKnows ? 'Existing player knowledge' : null;
+    }
+    const shiftSit = state.activeSituations.find(x => x.id === 'sit_shift');
+    if (shiftSit) {
+      const danielThread = state.messages.thread_daniel || [];
+      const evidence = danielThread.some(m => /swap|trade.*shift|shift.*trade|shift.*swap/i.test(String(m.body || '')));
+      if (!evidence) {
+        shiftSit.playerKnows = false;
+        shiftSit.discoveredAt = null;
+        shiftSit.discoverySource = null;
+        shiftSit.knownInformation = [];
+      }
+    }
+    for (const e of (state.scheduledEvents || [])) {
+      if (e.visibility === 'known' && e.reminderMinutes === undefined) e.reminderMinutes = null;
+      if (e.reminderLastTriggeredFor === undefined) e.reminderLastTriggeredFor = null;
+    }
+    if (shiftSit && shiftSit.playerKnows === false && !(state.scheduledEvents || []).some(e => e.type === 'daniel_shift_request' && e.status === 'queued')) {
+      const delay = 90 + Math.floor(seededRandom(state) * 180);
+      state.scheduledEvents.push({ id:'evt_daniel_shift_request', type:'daniel_shift_request', title:'Daniel shift request', triggerAt:addMinutesISO(state.world.now, delay), deadlineAt:null, status:'queued', visibility:'hidden', npcId:'daniel' });
+    }
+
     // Remove obsolete generated work appointments and ensure the next 75 days of actual shifts exist.
     state.scheduledEvents = (state.scheduledEvents || []).filter(e => e.id !== 'evt_work_1' && !(e.type==='appointment' && e.title==='Work shift'));
     const base=dayStart(state.world.now);
@@ -588,9 +622,9 @@ button:disabled { opacity: .38; cursor: default; }
         { id: 'evt_maya_private_1', type: 'npc_private', title: 'Maya work frustration', triggerAt: privateMaya, deadlineAt: null, locationId: 'work', requiresPresence: false, status: 'queued', visibility: 'hidden', recurrence: null, npcId: 'maya', payload: { kind: 'work-frustration' } },
       ],
       activeSituations: [
-        { id: 'sit_car', title: 'Car squeak', status: 'active', involvedPeople: ['jonathan'], knownInformation: ['A brief squeak has been audible on some cold starts.'], hiddenInformation: { cause: 'A worn accessory-belt tensioner is beginning to chatter.' }, possibleFutureDevelopments: ['It may remain intermittent.', 'A mechanic could diagnose it.', 'It could become louder over time.'], deadlineAt: null, consequences: [], urgency: 'low' },
-        { id: 'sit_shift', title: 'Possible shift swap', status: 'active', involvedPeople: ['jonathan', 'daniel'], knownInformation: ['Daniel asked whether Jonathan might trade one upcoming shift. No decision has been made.'], hiddenInformation: {}, possibleFutureDevelopments: ['Jonathan can ask which shift Daniel means.', 'Daniel may solve the schedule another way.'], deadlineAt: addMinutesISO(workStart, 60 * 36), consequences: [], urgency: 'low' },
-        { id: 'sit_groceries', title: 'Low groceries', status: 'active', involvedPeople: ['jonathan'], knownInformation: ['There is enough food for tonight, but breakfast options are limited.'], hiddenInformation: {}, possibleFutureDevelopments: ['Shop later.', 'Use what is already at home.'], deadlineAt: null, consequences: [], urgency: 'low' },
+        { id: 'sit_car', title: 'Car squeak', status: 'active', playerKnows: true, discoveredAt: start, discoverySource: 'Jonathan noticed it', involvedPeople: ['jonathan'], knownInformation: ['A brief squeak has been audible on some cold starts.'], hiddenInformation: { cause: 'A worn accessory-belt tensioner is beginning to chatter.' }, possibleFutureDevelopments: ['It may remain intermittent.', 'A mechanic could diagnose it.', 'It could become louder over time.'], deadlineAt: null, consequences: [], urgency: 'low' },
+        { id: 'sit_shift', title: 'Possible shift swap', status: 'active', playerKnows: false, discoveredAt: null, discoverySource: null, involvedPeople: ['jonathan', 'daniel'], knownInformation: [], hiddenInformation: {}, possibleFutureDevelopments: ['Jonathan can ask which shift Daniel means.', 'Daniel may solve the schedule another way.'], deadlineAt: addMinutesISO(workStart, 60 * 36), consequences: [], urgency: 'low' },
+        { id: 'sit_groceries', title: 'Low groceries', status: 'active', playerKnows: true, discoveredAt: start, discoverySource: 'Jonathan knows what is in the kitchen', involvedPeople: ['jonathan'], knownInformation: ['There is enough food for tonight, but breakfast options are limited.'], hiddenInformation: {}, possibleFutureDevelopments: ['Shop later.', 'Use what is already at home.'], deadlineAt: null, consequences: [], urgency: 'low' },
       ],
       journal: {
         recentMajorEvents: [],
@@ -648,12 +682,12 @@ button:disabled { opacity: .38; cursor: default; }
       const suggestions = [];
       const locId = state.world.playerLocationId;
       const unreadThreads = Object.entries(state.messages).filter(([, msgs]) => msgs.some(m => m.recipientId === 'jonathan' && !m.read));
-      if (unreadThreads.length) suggestions.push({ category: 'Phone', text: 'Check my unread messages.' });
+      if (unreadThreads.length) suggestions.push({ category: 'Phone', text: 'Check my unread messages.', uiAction: { type:'open_unread_messages' } });
       if (locId === 'home') {
         suggestions.push({ category: 'Act', text: 'Make something to eat.' });
         suggestions.push({ category: 'Observe', text: 'Look around the apartment and see what needs doing.' });
-        suggestions.push({ category: 'Phone', text: 'Text Maya and ask how her night is going.' });
-        suggestions.push({ category: 'Phone', text: 'Reply to Daniel.' });
+        suggestions.push({ category: 'Phone', text: 'Text Maya and ask how her night is going.', uiAction:{type:'open_message_thread',npcId:'maya'} });
+        suggestions.push({ category: 'Phone', text: 'Reply to Daniel.', uiAction:{type:'open_message_thread',npcId:'daniel'} });
         suggestions.push({ category: 'Act', text: 'Take a shower.' });
         suggestions.push({ category: 'Leave', text: 'Drive to Juniper Coffee.' });
         suggestions.push({ category: 'Avoid', text: 'Do nothing for an hour and let the evening pass.' });
@@ -665,11 +699,11 @@ button:disabled { opacity: .38; cursor: default; }
         suggestions.push({ category: 'Work', text: 'Handle an appointment confirmation.' });
         suggestions.push({ category: 'Work', text: 'Work on an insurance verification.' });
         suggestions.push({ category: 'Work', text: 'Return a patient voicemail.' });
-        suggestions.push({ category: 'Phone', text: 'Check my calendar.' });
+        suggestions.push({ category: 'Phone', text: 'Check my calendar.', uiAction:{type:'open_phone_tab',tab:'calendar'} });
         suggestions.push({ category: 'Leave', text: 'Drive home.' });
       } else {
         suggestions.push({ category: 'Observe', text: `Look around ${state.locations[locId].name}.` });
-        suggestions.push({ category: 'Phone', text: 'Check my phone.' });
+        suggestions.push({ category: 'Phone', text: 'Check my phone.', uiAction:{type:'open_phone_tab',tab:'messages'} });
         suggestions.push({ category: 'Leave', text: 'Drive home.' });
       }
 
@@ -858,7 +892,7 @@ button:disabled { opacity: .38; cursor: default; }
       this.state.player.condition.statusEffects = Array.isArray(this.state.player.condition.statusEffects) ? this.state.player.condition.statusEffects : [];
       this.state.player.condition.injuryNote = this.state.player.condition.injuryNote || null;
       this.state.ui.lastSimulationNotice = this.state.ui.lastSimulationNotice || '';
-      this.state.meta.provider = 'milestone2-hybrid-v8';
+      this.state.meta.provider = 'milestone3-hybrid-v9';
       if (!this.state.ui.lastNarrative) {
         this.state.ui.lastNarrative = this.provider.generateScene(this.state, null);
         this.state.ui.suggestions = this.provider.generateSuggestions(this.state);
@@ -950,6 +984,49 @@ button:disabled { opacity: .38; cursor: default; }
       const last=c.lastDealerCheckInAt?asDate(c.lastDealerCheckInAt):null; if(last && (asDate(s.world.now)-last)<72*3600000) return;
       // The simulation notices low stock, but Eli's message is framed as a cadence-based check-in, not omniscient inventory knowledge.
       if(seededRandom(s)<0.72){ const delay=45+Math.floor(seededRandom(s)*240); s.scheduledEvents.push({id:makeId('evt',s),type:'dealer_checkin',title:'Eli checks in',triggerAt:addMinutesISO(s.world.now,delay),deadlineAt:null,status:'queued',visibility:'hidden',npcId:'eli'}); }
+    }
+
+    discoverSituation(id, source, knownInformation = []) {
+      const s=this.state; const sit=(s.activeSituations||[]).find(x=>x.id===id); if(!sit) return null;
+      const wasKnown=sit.playerKnows!==false;
+      sit.playerKnows=true; sit.discoveredAt=s.world.now; sit.discoverySource=String(source||'Learned through play');
+      sit.knownInformation=Array.isArray(sit.knownInformation)?sit.knownInformation:[];
+      for(const info of knownInformation){ if(info && !sit.knownInformation.includes(info)) sit.knownInformation.push(String(info)); }
+      if(!wasKnown){ this.feedback(`${sit.title} discovered`); this.addActivity('situation',`${sit.title} discovered.`,{importance:'high'}); }
+      return sit;
+    }
+
+    setCalendarReminder(eventId, minutes) {
+      const e=(this.state.scheduledEvents||[]).find(x=>x.id===eventId && x.visibility==='known'); if(!e) return false;
+      const allowed=[null,0,15,60,1440]; const value=minutes==null?null:Number(minutes); if(!allowed.includes(value)) return false;
+      e.reminderMinutes=value; e.reminderLastTriggeredFor=null;
+      const label=value==null?'Off':value===0?'At event time':value===15?'15 minutes before':value===60?'1 hour before':'1 day before';
+      this.feedback(`Calendar reminder ${label.toLowerCase()}`); this.addActivity('calendar',`Reminder for ${e.title}: ${label}.`); return true;
+    }
+
+    processCalendarReminders(from,to,visible) {
+      const s=this.state; const a=asDate(from), b=asDate(to);
+      for(const e of (s.scheduledEvents||[])){
+        if(e.visibility!=='known' || e.reminderMinutes==null || !e.triggerAt) continue;
+        const reminderAt=addMinutesISO(e.triggerAt,-Number(e.reminderMinutes||0));
+        const key=`${e.id}:${reminderAt}`; if(e.reminderLastTriggeredFor===key) continue;
+        const r=asDate(reminderAt); if(r>=a && r<=b){
+          e.reminderLastTriggeredFor=key;
+          const when=e.reminderMinutes===0?'now':e.reminderMinutes===15?'in 15 minutes':e.reminderMinutes===60?'in 1 hour':'in 1 day';
+          const text=`Calendar reminder: ${e.title} ${when}.`;
+          this.feedback(text); this.addActivity('reminder',text,{importance:'high'}); s.ui.pendingAlerts.push({id:makeId('alert',s),at:s.world.now,title:'Calendar reminder',text,eventId:e.id,read:false}); visible.push({type:'reminder',text});
+        }
+      }
+    }
+
+    applyNPCSocialResult(npcId, social, source='conversation') {
+      const s=this.state, npc=s.npcs[npcId]; if(!npc || !social || !social.meaningful) return false;
+      const effects=social.relationship_effects || social.relationshipEffects || {}; const deltas={};
+      for(const key of ['trust','affection','respect','attraction','fear','resentment']){ const v=Math.max(-6,Math.min(6,Number(effects[key]||0))); if(v) deltas[key]=v; }
+      if(Object.keys(deltas).length) this.changeRelationship(npcId,deltas,`${source}: ${social.intent||'meaningful interaction'}`);
+      const visible=String(social.visible_feedback||social.visibleFeedback||'').trim(); if(visible){ npc.publicSignal={text:visible,at:s.world.now}; this.feedback(visible); this.addActivity('relationship',visible); }
+      const mem=social.memory||{}; if(mem.create && mem.event){ this.addMemory(npcId,{event:String(mem.event).slice(0,260),emotionalValence:Number(mem.emotional_valence||0),emotionalStrength:Number(mem.emotional_strength||0.25),importance:Number(mem.importance||0.35),decay:Number(mem.importance||0)>=0.65?'slow':'normal',private:false,secret:false}); }
+      return Boolean(Object.keys(deltas).length || visible || (mem.create && mem.event));
     }
 
     interpretAction(raw) { return this.interpreter.interpret(raw, this.state); }
@@ -1085,18 +1162,35 @@ button:disabled { opacity: .38; cursor: default; }
         triggerAt: addMinutesISO(s.world.now, delay), deadlineAt: null, status: 'queued', visibility: 'hidden', npcId: npc.id,
         payload: {
           respondingTo: msg.id, incomingBody: replyPlan.body, topic: replyPlan.topic,
-          intent: replyPlan.intent, memoryEvent: replyPlan.memoryEvent || null, engineVersion: 2,
-          dialogueProvider: 'local-context-v2',
+          intent: replyPlan.intent, memoryEvent: replyPlan.memoryEvent || null, engineVersion: 3,
+          dialogueProvider: 'local-context-v3', social: this.localTextSocialOutcome(npc, action.body),
         },
       });
-
-      if (/thank|appreciate|checking on you|hope you're okay|how are you|sorry/i.test(action.body)) {
-        this.changeRelationship(npc.id, { trust: 1, affection: 1 }, `Jonathan sent a considerate message: "${action.body}"`);
-      }
       return {
         ok: true, type: action.type, minutes: 1, narrative: `You text ${npc.name}: “${action.body}”`,
         npcId: npc.id, outgoingMessageId: msg.id, replyEventId,
       };
+    }
+
+    localTextSocialOutcome(npc, body) {
+      const lower=String(body||'').toLowerCase();
+      const out={meaningful:false,intent:'neutral',perceived_as_flirting:false,flirt_reception:'none',relationship_effects:{trust:0,affection:0,respect:0,attraction:0,fear:0,resentment:0},visible_feedback:'',memory:{create:false,event:'',emotional_valence:0,emotional_strength:0,importance:0}};
+      const flirt=/\b(date|cute|hot|handsome|beautiful|sexy|kiss|flirt|crush|miss you|want you)\b|[😉😘😍]/i.test(body) || /excuse to see you/i.test(lower);
+      if(flirt){
+        out.meaningful=true; out.intent='flirt'; out.perceived_as_flirting=true;
+        const receptive=(npc.relationship.attraction||0)>=15 || (npc.relationship.affection||0)>=55;
+        const negative=(npc.relationship.resentment||0)>=30 || (npc.relationship.fear||0)>=20;
+        out.flirt_reception=negative?'negative':receptive?'positive':'neutral';
+        if(negative){out.relationship_effects.attraction=-1;out.relationship_effects.respect=-1;out.relationship_effects.resentment=2;out.visible_feedback=`${npc.name} seemed uncomfortable with the tone.`;}
+        else if(receptive){out.relationship_effects.attraction=2;out.relationship_effects.affection=1;out.visible_feedback=`${npc.name} seemed receptive to the flirting.`;}
+        else {out.relationship_effects.attraction=1;out.visible_feedback=`${npc.name} seemed to notice the flirtatious tone.`;}
+        out.memory={create:true,event:`Jonathan sent ${npc.name} a flirtatious message; ${npc.name} received it ${out.flirt_reception}ly.`,emotional_valence:negative?-0.3:receptive?0.3:0.05,emotional_strength:0.3,importance:0.4};
+        return out;
+      }
+      if(/\b(sorry|apologize|apology)\b/i.test(body)){out.meaningful=true;out.intent='apology';out.relationship_effects.trust=1;out.relationship_effects.affection=1;out.visible_feedback=`${npc.name} seemed to appreciate the apology.`;out.memory={create:true,event:`Jonathan apologized to ${npc.name} over text.`,emotional_valence:0.2,emotional_strength:0.2,importance:0.3};return out;}
+      if(/\b(thank you|thanks|appreciate you|i'm here for you|im here for you|you can talk to me)\b/i.test(body)){out.meaningful=true;out.intent='support';out.relationship_effects.trust=1;out.relationship_effects.affection=1;out.visible_feedback=`${npc.name} seemed a little warmer after that.`;return out;}
+      if(/\b(idiot|stupid|shut up|hate you|fuck you)\b/i.test(body)){out.meaningful=true;out.intent='insult';out.relationship_effects.respect=-2;out.relationship_effects.resentment=2;out.visible_feedback=`${npc.name} seemed put off by that.`;out.memory={create:true,event:`Jonathan insulted ${npc.name} over text.`,emotional_valence:-0.4,emotional_strength:0.35,importance:0.4};return out;}
+      return out;
     }
 
     normalizeDialogueText(text) {
@@ -1308,10 +1402,17 @@ button:disabled { opacity: .38; cursor: default; }
     resolveCall(action) {
       const npc = this.state.npcs[action.npcId];
       const reachable = npc.current.activity !== 'working' || seededRandom(this.state) > 0.45;
-      if (!reachable) return { ok: true, type: action.type, minutes: 2, narrative: `${npc.name} does not answer. The call rolls to voicemail.` };
+      if (!reachable) { this.addActivity('call',`${npc.name} did not answer.`); return { ok: true, type: action.type, minutes: 2, narrative: `${npc.name} does not answer. The call rolls to voicemail.` }; }
       this.markThreadRead(npc.phone.threadId);
-      this.addMemory(npc.id, { event: `Jonathan called ${npc.name} and they spoke briefly.`, emotionalValence: 0.1, emotionalStrength: 0.1, importance: 0.15, decay: 'normal', private: false, secret: false });
-      return { ok: true, type: action.type, minutes: 8, narrative: `${npc.name} answers. You have a brief, ordinary conversation.` };
+      const lower=String(action.raw||'').toLowerCase(); let meaningful=false;
+      if(/apolog|sorry|thank|appreciat|support|love|miss you|flirt|date|promise|argu|fight|insult/.test(lower)){
+        meaningful=true; const changes=/sorry|apolog|thank|appreciat|support/.test(lower)?{trust:1,affection:1}:/insult|argu|fight/.test(lower)?{respect:-1,resentment:1}:{affection:1};
+        this.changeRelationship(npc.id,changes,`Meaningful phone call: ${action.raw}`);
+        this.addMemory(npc.id,{event:`Jonathan called ${npc.name}: ${action.raw}`,emotionalValence:(changes.resentment||0)>0?-0.25:0.2,emotionalStrength:0.25,importance:0.35,decay:'normal',private:false,secret:false});
+      }
+      if(!meaningful) this.addMemory(npc.id, { event: `Jonathan called ${npc.name} and they spoke briefly.`, emotionalValence: 0.05, emotionalStrength: 0.05, importance: 0.1, decay: 'fast', private: false, secret: false });
+      this.addActivity('call',`Call with ${npc.name} lasted about 8 minutes.`);
+      return { ok: true, type: action.type, minutes: 8, narrative: `${npc.name} answers. You have a brief conversation${meaningful?' that carries some emotional weight':''}.` };
     }
 
     resolveTravel(action) {
@@ -1751,6 +1852,7 @@ button:disabled { opacity: .38; cursor: default; }
 
     processScheduledEvents(from, to) {
       const s = this.state; const visible = [];
+      this.processCalendarReminders(from,to,visible);
       const due = s.scheduledEvents.filter(e => e.status === 'queued' && asDate(e.triggerAt) <= asDate(to)).sort((a, b) => asDate(a.triggerAt) - asDate(b.triggerAt));
       for (const event of due) {
         if (event.type === 'payroll') {
@@ -1761,6 +1863,12 @@ button:disabled { opacity: .38; cursor: default; }
           s.player.consumables.cannabisFlower.lastDealerCheckInAt=event.triggerAt; event.status='completed'; visible.push({type:'message',text:'A message from Eli arrives.'}); this.addActivity('message','Eli checked in.');
         } else if (event.type === 'work_shift') {
           const end=asDate(event.deadlineAt); if(asDate(to)>=end){ if((event.workedMinutes||0)<=0){event.status='missed';visible.push({type:'missed',text:'Your scheduled work shift has ended without any paid time logged.'});this.applyMissedWorkConsequence(event);this.addActivity('work','Scheduled shift missed.',{importance:'high'});} else {event.status='completed';} } else if(asDate(to)>=asDate(event.triggerAt) && event.status==='queued') event.status='started';
+        } else if (event.type === 'daniel_shift_request') {
+          const npc=s.npcs.daniel, thread=npc.phone.threadId;
+          const body='Any chance you’d swap one of my shifts next week? I’m still figuring out which day, but I wanted to ask you first.';
+          s.messages[thread].push({id:makeId('msg',s),at:event.triggerAt,senderId:'daniel',recipientId:'jonathan',body,read:false,topic:'work',intent:'request'});
+          event.status='completed'; this.discoverSituation('sit_shift',`Daniel message at ${event.triggerAt}`,['Daniel asked whether Jonathan might trade one upcoming shift. No decision has been made.']);
+          visible.push({type:'message',text:'A message from Daniel arrives.'}); this.addActivity('message','Daniel asked about a possible shift swap.',{importance:'high'});
         } else if (event.type === 'message_response') {
           const npc = s.npcs[event.npcId]; const thread = npc.phone.threadId;
           const sent = (s.messages[thread] || []).find(m => m.id === event.payload.respondingTo);
@@ -1779,8 +1887,10 @@ button:disabled { opacity: .38; cursor: default; }
           if (memoryEvent && !npc.memories.some(m => m.event === memoryEvent)) {
             this.addMemory(npc.id, { event: memoryEvent, emotionalValence: 0, emotionalStrength: 0.12, importance: 0.28, decay: 'slow', private: false, secret: false });
           }
+          if (event.payload.social) this.applyNPCSocialResult(npc.id,event.payload.social,'text conversation');
           event.status = 'completed';
           visible.push({ type: 'message', text: `A message from ${npc.name} arrives.` });
+          this.addActivity('message',`Message from ${npc.name}: ${String(incomingBody).slice(0,120)}${String(incomingBody).length>120?'…':''}`);
           this.log('event', `Incoming contextual message from ${npc.name}.`);
         } else if (event.type === 'npc_call') {
           const npc = s.npcs[event.npcId];
@@ -1855,7 +1965,7 @@ button:disabled { opacity: .38; cursor: default; }
     applyMissedWorkConsequence(event) {
       const s = this.state;
       if (!s.activeSituations.some(x => x.id === `sit_${event.id}`)) {
-        s.activeSituations.push({ id: `sit_${event.id}`, title: 'Missed work shift', status: 'active', involvedPeople: ['jonathan'], knownInformation: ['Jonathan missed a scheduled shift without being at the office during the arrival window.'], hiddenInformation: {}, possibleFutureDevelopments: ['The office may ask what happened.', 'Repeated attendance issues could affect employment.'], deadlineAt: null, consequences: ['Attendance record affected'], urgency: 'medium' });
+        s.activeSituations.push({ id: `sit_${event.id}`, title: 'Missed work shift', status: 'active', playerKnows:true, discoveredAt:s.world.now, discoverySource:'Jonathan missed the shift', involvedPeople: ['jonathan'], knownInformation: ['Jonathan missed a scheduled shift without being at the office during the arrival window.'], hiddenInformation: {}, possibleFutureDevelopments: ['The office may ask what happened.', 'Repeated attendance issues could affect employment.'], deadlineAt: null, consequences: ['Attendance record affected'], urgency: 'medium' });
       }
     }
 
@@ -1912,7 +2022,7 @@ button:disabled { opacity: .38; cursor: default; }
         if (sit.status !== 'active') continue;
         if (sit.deadlineAt && asDate(s.world.now) > asDate(sit.deadlineAt)) {
           sit.status = 'expired';
-          s.journal.completedSituations.unshift({ at: s.world.now, title: sit.title, result: 'Expired without direct resolution.' });
+          if(sit.playerKnows!==false){ s.journal.completedSituations.unshift({ at: s.world.now, title: sit.title, result: 'Expired without direct resolution.' }); this.addActivity('situation',`${sit.title} expired without resolution.`); }
           this.log('situation', `Situation expired: ${sit.title}.`, true);
         }
       }
@@ -2085,6 +2195,35 @@ button:disabled { opacity: .38; cursor: default; }
       assert(e.state.player.money.checking>before,'Net payroll did not deposit.'); assert(e.state.player.employment.payroll.paychecks.length>0,'Paycheck record missing.');
     });
 
+    check('19 — Hidden shift swap is not player-visible before Daniel asks', () => {
+      const s=createInitialState({startTime:fixed,seed:19}); const e=new SimulationEngine(s); const sit=e.state.activeSituations.find(x=>x.id==='sit_shift'); assert(sit && sit.playerKnows===false,'Shift swap should start hidden.');
+    });
+    check('20 — Daniel request discovers shift swap', () => {
+      const s=createInitialState({startTime:fixed,seed:20}); const e=new SimulationEngine(s); const ev=e.state.scheduledEvents.find(x=>x.type==='daniel_shift_request'); assert(ev,'Daniel request event missing.'); e.advanceTime(Math.ceil((asDate(ev.triggerAt)-asDate(e.state.world.now))/60000)+1); const sit=e.state.activeSituations.find(x=>x.id==='sit_shift'); assert(sit.playerKnows===true,'Shift swap was not discovered.'); assert(e.state.messages.thread_daniel.some(m=>/swap.*shift|swap one of my shifts/i.test(m.body)),'Daniel request message missing.');
+    });
+    check('21 — Calendar reminder survives JSON save round-trip', () => {
+      const e=new SimulationEngine(createInitialState({startTime:fixed,seed:21})); const ev=e.state.scheduledEvents.find(x=>x.visibility==='known'); assert(ev,'No known event.'); assert(e.setCalendarReminder(ev.id,60),'Could not set reminder.'); const restored=JSON.parse(JSON.stringify(e.state)); assert(restored.scheduledEvents.find(x=>x.id===ev.id).reminderMinutes===60,'Reminder did not persist.');
+    });
+    check('22 — Calendar reminder triggers and appears in Recent', () => {
+      const s=createInitialState({startTime:fixed,seed:22}); s.scheduledEvents.push({id:'test_rem',type:'appointment',title:'Test meeting',triggerAt:addMinutesISO(fixed,70),deadlineAt:addMinutesISO(fixed,100),status:'queued',visibility:'known',reminderMinutes:60,reminderLastTriggeredFor:null}); const e=new SimulationEngine(s); e.advanceTime(11); assert(e.state.activityFeed.some(x=>x.kind==='reminder'&&/Test meeting/.test(x.text)),'Reminder missing from Recent.');
+    });
+    check('23 — Significant social metadata changes relationship and memory', () => {
+      const e=new SimulationEngine(createInitialState({startTime:fixed,seed:23})); const before=e.state.npcs.daniel.relationship.attraction; e.applyNPCSocialResult('daniel',{meaningful:true,intent:'flirt',relationship_effects:{attraction:2,affection:1},visible_feedback:'Daniel seemed receptive to that.',memory:{create:true,event:'Jonathan flirted over text.',emotional_valence:.2,emotional_strength:.3,importance:.4}},'test'); assert(e.state.npcs.daniel.relationship.attraction>before,'Attraction did not change.'); assert(e.state.npcs.daniel.memories.some(m=>/flirted over text/i.test(m.event)),'Social memory missing.');
+    });
+    check('24 — Neutral social metadata makes no arbitrary relationship change', () => {
+      const e=new SimulationEngine(createInitialState({startTime:fixed,seed:24})); const before=clone(e.state.npcs.daniel.relationship); e.applyNPCSocialResult('daniel',{meaningful:false,relationship_effects:{attraction:4}},'test'); assert(JSON.stringify(before)===JSON.stringify(e.state.npcs.daniel.relationship),'Neutral message changed relationship.');
+    });
+    check('25 — Negative flirting can reduce relationship quality', () => {
+      const e=new SimulationEngine(createInitialState({startTime:fixed,seed:25})); const before=e.state.npcs.daniel.relationship.resentment; e.applyNPCSocialResult('daniel',{meaningful:true,intent:'flirt',relationship_effects:{respect:-1,resentment:2,attraction:-1},visible_feedback:'Daniel seemed uncomfortable with the tone.',memory:{create:false}},'test'); assert(e.state.npcs.daniel.relationship.resentment>before,'Negative flirt did not affect resentment.');
+    });
+
+    check('26 — Flirty text has local social fallback metadata', () => {
+      const e=new SimulationEngine(createInitialState({startTime:fixed,seed:26})); const social=e.localTextSocialOutcome(e.state.npcs.daniel,'Maybe I just wanted an excuse to see you 😉'); assert(social.meaningful&&social.perceived_as_flirting,'Flirty text not recognized locally.'); assert(social.relationship_effects.attraction!==0,'No local flirt relationship effect.');
+    });
+    check('27 — Neutral text has no local relationship effect', () => {
+      const e=new SimulationEngine(createInitialState({startTime:fixed,seed:27})); const social=e.localTextSocialOutcome(e.state.npcs.daniel,'What time are you free tomorrow?'); assert(!social.meaningful,'Neutral text incorrectly marked meaningful.'); assert(Object.values(social.relationship_effects).every(v=>v===0),'Neutral text got relationship effects.');
+    });
+
     return report;
   }
 
@@ -2138,6 +2277,7 @@ button:disabled { opacity: .38; cursor: default; }
       this.drawer = null;
       this.phoneTab = 'messages';
       this.phoneThread = null;
+      this.calendarEventId = null;
       this.debugTests = null;
       this.toastTimer = null;
       this.renderLanding();
@@ -2177,7 +2317,7 @@ button:disabled { opacity: .38; cursor: default; }
           <section class="landing-card">
             <div class="eyebrow">Persistent simulation</div>
             <h1>AI SANDBOX</h1>
-            <p>Realistic Life V1.1. Free-text first, persistent NPCs, contextual local dialogue, time, memory, beliefs, consequences, and local saves.</p>
+            <p>Realistic Life V1.3. Persistent simulation, contextual AI dialogue, social consequences, reminders, memories, and local saves.</p>
             <div class="landing-actions">
               <button class="primary" id="newGameBtn">NEW GAME</button>
               <button class="secondary" id="continueBtn" ${hasSave ? '' : 'disabled'}>CONTINUE</button>
@@ -2226,6 +2366,7 @@ button:disabled { opacity: .38; cursor: default; }
             </div>
           </header>
           <main class="main-stage">
+            <div id="alertArea"></div>
             <section class="scene-card" aria-live="polite">
               <div class="scene-label">Scene</div>
               <div class="scene-text" id="sceneText"></div>
@@ -2295,14 +2436,52 @@ button:disabled { opacity: .38; cursor: default; }
       const s = this.engine.state;
       this.updateHeader();
       document.getElementById('sceneText').textContent = s.ui.lastNarrative;
+      const alertArea=document.getElementById('alertArea');
+      if(alertArea){ const alert=(s.ui.pendingAlerts||[]).find(a=>!a.read); alertArea.innerHTML=alert?`<div class="alert-banner"><div><strong>${this.esc(alert.title||'Alert')}</strong><div>${this.esc(alert.text||'')}</div></div><button data-dismiss-alert="${this.esc(alert.id)}" aria-label="Dismiss alert">✕</button></div>`:''; const dismiss=alertArea.querySelector('[data-dismiss-alert]'); if(dismiss) dismiss.addEventListener('click',()=>{const a=(s.ui.pendingAlerts||[]).find(x=>x.id===dismiss.dataset.dismissAlert);if(a)a.read=true;this.persist();this.renderWorld();}); }
       const fb=document.getElementById('feedbackStrip'); if(fb){ const items=Array.isArray(s.ui.lastFeedback)?s.ui.lastFeedback:[]; fb.innerHTML=items.map(x=>`<span class="feedback-chip ${(x.tone||'')==='warn'?'warn':''}">${this.esc(typeof x==='string'?x:x.text)}</span>`).join(''); }
       const sug = document.getElementById('suggestions');
       sug.innerHTML = s.ui.suggestions.map((x, i) => `<button class="suggestion" data-suggestion="${i}"><span class="cat">${this.esc(x.category)}</span><span class="txt">${this.esc(x.text)}</span></button>`).join('');
       sug.querySelectorAll('[data-suggestion]').forEach(btn => btn.addEventListener('click', () => {
         const item = s.ui.suggestions[Number(btn.dataset.suggestion)];
-        if (item) this.runAction(item.text);
+        if (!item) return;
+        const uiAction=this.inferUIAction(item);
+        if (uiAction) this.executeUIAction(uiAction);
+        else this.runAction(item.text);
       }));
       if (this.drawer) this.renderDrawer();
+    }
+
+    inferUIAction(item) {
+      if(item && item.uiAction) return item.uiAction;
+      const t=String(item&&item.text||'').toLowerCase();
+      if(/unread message|check.*messages/.test(t)) return {type:'open_unread_messages'};
+      if(/check.*calendar|open.*calendar/.test(t)) return {type:'open_phone_tab',tab:'calendar'};
+      if(/bank balance|check.*bank/.test(t)) return {type:'open_phone_tab',tab:'bank'};
+      if(/look.*contacts|check.*contacts/.test(t)) return {type:'open_phone_tab',tab:'contacts'};
+      if(/check.*map|open.*map/.test(t)) return {type:'open_drawer',tab:'map'};
+      if(/recent events|recent actions/.test(t)) return {type:'open_drawer',tab:'recent'};
+      if(/active situations|check.*journal/.test(t)) return {type:'open_drawer',tab:'journal'};
+      const m=t.match(/(?:message|reply to|text)\s+(maya|daniel|dad|eli)/); if(m) return {type:'open_message_thread',npcId:m[1]};
+      return null;
+    }
+
+    executeUIAction(action) {
+      const s=this.engine.state; if(!action) return false;
+      if(action.type==='open_unread_messages'){
+        this.drawer='phone'; this.phoneTab='messages';
+        const unread=Object.values(s.npcs).filter(n=>n.phone && (s.messages[n.phone.threadId]||[]).some(m=>m.recipientId==='jonathan'&&!m.read));
+        this.phoneThread=unread.length===1?unread[0].id:null; if(this.phoneThread) this.engine.markThreadRead(s.npcs[this.phoneThread].phone.threadId); document.getElementById('drawer').classList.remove('hidden'); this.persist(); this.renderDrawer(); return true;
+      }
+      if(action.type==='open_phone_tab'){
+        this.drawer='phone'; this.phoneTab=action.tab||'messages'; this.phoneThread=null; this.calendarEventId=null; document.getElementById('drawer').classList.remove('hidden'); this.renderDrawer(); return true;
+      }
+      if(action.type==='open_message_thread'){
+        this.drawer='phone'; this.phoneTab='messages'; this.phoneThread=action.npcId||null; if(this.phoneThread&&s.npcs[this.phoneThread]) this.engine.markThreadRead(s.npcs[this.phoneThread].phone.threadId); document.getElementById('drawer').classList.remove('hidden'); this.persist(); this.renderDrawer(); return true;
+      }
+      if(action.type==='open_drawer'){
+        this.openDrawer(action.tab); return true;
+      }
+      return false;
     }
 
     submitComposer() {
@@ -2543,7 +2722,7 @@ button:disabled { opacity: .38; cursor: default; }
       }));
       const message = (s.messages[npc.phone.threadId] || []).find(m => m.id === outgoingMessageId);
       const situations = s.activeSituations
-        .filter(x => x.status === 'active' && Array.isArray(x.involvedPeople) && x.involvedPeople.includes(npc.id))
+        .filter(x => x.status === 'active' && x.playerKnows !== false && Array.isArray(x.involvedPeople) && x.involvedPeople.includes(npc.id))
         .map(x => ({ title: x.title, knownInformation: x.knownInformation || [], urgency: x.urgency || 'normal' }));
       const memories = (npc.memories || []).slice(-8).map(m => ({
         event: m.event, timestamp: m.timestamp, importance: m.importance, consequences: m.consequences || []
@@ -2618,6 +2797,7 @@ button:disabled { opacity: .38; cursor: default; }
         pending.payload.incomingBody = reply;
         pending.payload.dialogueProvider = data.model || 'gpt-5.6-luna';
         pending.payload.aiGenerated = true;
+        if (data && data.social) pending.payload.social = data.social;
         this.setAIStatus('connected', `${pending.payload.dialogueProvider}: ${reply.slice(0, 140)}`);
         this.engine.log('ai', `Remote dialogue prepared for ${this.engine.state.npcs[result.npcId].name} using ${pending.payload.dialogueProvider}.`);
         this.persist();
@@ -2633,6 +2813,7 @@ button:disabled { opacity: .38; cursor: default; }
 
     openDrawer(tab) {
       this.drawer = tab;
+      if(tab!=='phone' || this.phoneTab!=='calendar') this.calendarEventId=null;
       document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
       document.getElementById('drawer').classList.remove('hidden');
       this.renderDrawer();
@@ -2710,7 +2891,12 @@ button:disabled { opacity: .38; cursor: default; }
       }
       if (this.phoneTab === 'calendar') {
         const events = s.scheduledEvents.filter(e => e.visibility === 'known').sort((a,b) => new Date(a.triggerAt)-new Date(b.triggerAt));
-        return `<div class="cards">${events.map(e => `<div class="card"><div class="row"><strong>${this.esc(e.title)}</strong><span class="event-status ${this.esc(e.status)}">${this.esc(e.status)}</span></div><p>${this.shortDate(e.triggerAt)}${e.locationId ? ` · ${this.esc(s.locations[e.locationId].name)}`:''}</p></div>`).join('') || '<p class="meta">No calendar events.</p>'}</div>`;
+        if(this.calendarEventId){
+          const e=events.find(x=>x.id===this.calendarEventId); if(!e){this.calendarEventId=null; return '<p class="meta">Event not found.</p>';}
+          const reminder=e.reminderMinutes==null?'Off':e.reminderMinutes===0?'At event time':e.reminderMinutes===15?'15 minutes before':e.reminderMinutes===60?'1 hour before':'1 day before';
+          return `<button class="ghost" data-calendar-back>← Calendar</button><div class="card" style="margin-top:10px"><h3>${this.esc(e.title)}</h3><p>${this.shortDate(e.triggerAt)}${e.locationId&&s.locations[e.locationId]?` · ${this.esc(s.locations[e.locationId].name)}`:''}</p><p>Status: ${this.esc(e.status)}</p><p><strong>Reminder:</strong> ${this.esc(reminder)}</p><div class="subtabs" style="margin-top:12px"><button class="subtab" data-reminder="off">Off</button><button class="subtab" data-reminder="0">At time</button><button class="subtab" data-reminder="15">15 min</button><button class="subtab" data-reminder="60">1 hour</button><button class="subtab" data-reminder="1440">1 day</button></div></div>`;
+        }
+        return `<div class="cards">${events.map(e => `<button class="card" style="text-align:left;color:inherit" data-calendar-event="${this.esc(e.id)}"><div class="row"><strong>${this.esc(e.title)}</strong><span class="event-status ${this.esc(e.status)}">${this.esc(e.status)}</span></div><p>${this.shortDate(e.triggerAt)}${e.locationId&&s.locations[e.locationId]?` · ${this.esc(s.locations[e.locationId].name)}`:''}</p>${e.reminderMinutes!=null?`<div class="meta">Reminder enabled</div>`:''}</button>`).join('') || '<p class="meta">No calendar events.</p>'}</div>`;
       }
       if (this.phoneTab === 'contacts') {
         return `<div class="cards">${s.contacts.map(c => `<div class="card"><h3>${this.esc(c.name)}</h3><p>${this.esc(s.npcs[c.npcId].occupation)}</p><button class="secondary" data-open-thread="${c.npcId}" style="margin-top:10px">Message</button></div>`).join('')}</div>`;
@@ -2740,8 +2926,8 @@ button:disabled { opacity: .38; cursor: default; }
 
     journalHTML() {
       const s = this.engine.state;
-      const active = s.activeSituations.filter(x => x.status === 'active');
-      const done = s.activeSituations.filter(x => x.status !== 'active');
+      const active = s.activeSituations.filter(x => x.status === 'active' && x.playerKnows !== false);
+      const done = s.activeSituations.filter(x => x.status !== 'active' && x.playerKnows !== false);
       return `<h3>Active situations</h3><div class="cards">${active.map(x => `<div class="card"><div class="row"><strong>${this.esc(x.title)}</strong><span class="pill">${this.esc(x.urgency)}</span></div>${x.knownInformation.map(k => `<p>${this.esc(k)}</p>`).join('')}</div>`).join('') || '<p class="meta">Nothing active.</p>'}</div><div class="divider"></div><h3>Recent events</h3><div class="cards">${s.journal.recentMajorEvents.map(x => `<div class="card"><strong>${this.esc(x.text)}</strong><div class="meta">${this.shortDate(x.at)}</div></div>`).join('') || '<p class="meta">No major recent events.</p>'}</div>${done.length ? `<div class="divider"></div><h3>Resolved / expired</h3><div class="cards">${done.map(x => `<div class="card"><strong>${this.esc(x.title)}</strong><div class="meta">${this.esc(x.status)}</div></div>`).join('')}</div>`:''}`;
     }
 
@@ -2751,13 +2937,16 @@ button:disabled { opacity: .38; cursor: default; }
     }
 
     bindDrawerActions() {
-      document.querySelectorAll('[data-phone-tab]').forEach(b => b.addEventListener('click', () => { this.phoneTab = b.dataset.phoneTab; this.phoneThread = null; this.renderDrawer(); }));
+      document.querySelectorAll('[data-phone-tab]').forEach(b => b.addEventListener('click', () => { this.phoneTab = b.dataset.phoneTab; this.phoneThread = null; this.calendarEventId=null; this.renderDrawer(); }));
       document.querySelectorAll('[data-open-thread]').forEach(b => b.addEventListener('click', () => {
         this.drawer = 'phone'; this.phoneTab = 'messages'; this.phoneThread = b.dataset.openThread;
         const npc = this.engine.state.npcs[this.phoneThread];
         this.engine.markThreadRead(npc.phone.threadId); this.persist(); this.renderDrawer();
       }));
       const back = document.querySelector('[data-thread-back]'); if (back) back.addEventListener('click', () => { this.phoneThread = null; this.renderDrawer(); });
+      document.querySelectorAll('[data-calendar-event]').forEach(b=>b.addEventListener('click',()=>{this.calendarEventId=b.dataset.calendarEvent;this.renderDrawer();}));
+      const calBack=document.querySelector('[data-calendar-back]'); if(calBack) calBack.addEventListener('click',()=>{this.calendarEventId=null;this.renderDrawer();});
+      document.querySelectorAll('[data-reminder]').forEach(b=>b.addEventListener('click',()=>{ const v=b.dataset.reminder==='off'?null:Number(b.dataset.reminder); if(this.engine.setCalendarReminder(this.calendarEventId,v)){this.persist('Reminder updated');this.renderDrawer();} }));
       document.querySelectorAll('[data-send-thread]').forEach(b => b.addEventListener('click', () => {
         const input = document.getElementById('threadInput'); const body = input.value.trim(); if (!body) return;
         const npc = this.engine.state.npcs[b.dataset.sendThread]; this.runAction(`Text ${npc.name}: ${body}`); this.phoneThread = npc.id; this.renderDrawer();
@@ -2790,7 +2979,7 @@ button:disabled { opacity: .38; cursor: default; }
       const usageHtml = lastUsage
         ? `<div class="divider"></div><h3 style="margin-bottom:8px">Luna usage</h3><div class="debug-summary"><div class="stat"><span class="meta">Last input</span><strong>${lastUsage.inputTokens.toLocaleString()} tokens</strong></div><div class="stat"><span class="meta">Last output</span><strong>${lastUsage.outputTokens.toLocaleString()} tokens</strong></div><div class="stat"><span class="meta">Last estimated cost</span><strong>${this.formatAICost(lastUsage.estimatedCost)}</strong></div><div class="stat"><span class="meta">Browser total</span><strong>${this.formatAICost(usage.estimatedCost)}</strong></div></div><div class="meta">${usage.requests} API request${usage.requests === 1 ? '' : 's'} tracked · ${usage.inputTokens.toLocaleString()} input · ${usage.outputTokens.toLocaleString()} output${usage.cachedInputTokens ? ` · ${usage.cachedInputTokens.toLocaleString()} cached input` : ''}. Cost is an estimate using current GPT-5.6 Luna standard token rates.</div>`
         : `<div class="divider"></div><div class="meta">Luna usage: waiting for the backend to return token usage.</div>`;
-      const aiCard = `<div class="card"><h3>AI — Milestone 2 owner access</h3><p class="meta">Public players use local fallbacks by default. GPT-5.6 Luna handles owner NPC dialogue and ambiguous free-form actions; requests require your private owner token. The token is stored only in this browser and is never committed to GitHub.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://vercel-dialogue-api-project.vercel.app/api/dialogue" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div class="inline-compose" style="margin-top:8px"><input id="aiAccessTokenInput" type="password" autocomplete="off" placeholder="Owner access token" value="${this.esc(aiAccessToken)}" /><button id="aiAccessTokenSave">Save token</button></div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="secondary" id="aiEndpointTest">Test connection</button><button class="ghost" id="aiUsageReset">Reset usage counter</button></div><div class="meta" style="margin-top:8px">Endpoint: ${this.esc(aiEndpoint || 'none')}</div><div class="meta" style="margin-top:4px">Owner token: ${aiAccessToken ? 'configured on this device' : 'not configured — Luna disabled'}</div><div class="meta" style="margin-top:4px">Last AI status: ${this.esc(statusText)}</div>${usageHtml}</div><div class="divider"></div>`;
+      const aiCard = `<div class="card"><h3>AI — Milestone 3 owner access</h3><p class="meta">Public players use local fallbacks by default. GPT-5.6 Luna handles owner NPC dialogue and ambiguous free-form actions; requests require your private owner token. The token is stored only in this browser and is never committed to GitHub.</p><div class="inline-compose"><input id="aiEndpointInput" placeholder="https://vercel-dialogue-api-project.vercel.app/api/dialogue" value="${this.esc(aiEndpoint)}" /><button id="aiEndpointSave">Save</button></div><div class="inline-compose" style="margin-top:8px"><input id="aiAccessTokenInput" type="password" autocomplete="off" placeholder="Owner access token" value="${this.esc(aiAccessToken)}" /><button id="aiAccessTokenSave">Save token</button></div><div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><button class="secondary" id="aiEndpointTest">Test connection</button><button class="ghost" id="aiUsageReset">Reset usage counter</button></div><div class="meta" style="margin-top:8px">Endpoint: ${this.esc(aiEndpoint || 'none')}</div><div class="meta" style="margin-top:4px">Owner token: ${aiAccessToken ? 'configured on this device' : 'not configured — Luna disabled'}</div><div class="meta" style="margin-top:4px">Last AI status: ${this.esc(statusText)}</div>${usageHtml}</div><div class="divider"></div>`;
       el.innerHTML = `${tests}${aiCard}<div class="debug-summary"><div class="stat"><span class="meta">World time</span><strong>${this.esc(s.world.now)}</strong></div><div class="stat"><span class="meta">Turn</span><strong>${s.meta.turn}</strong></div><div class="stat"><span class="meta">Queued events</span><strong>${queued}</strong></div><div class="stat"><span class="meta">Log entries</span><strong>${s.simulationLog.length}</strong></div></div><h3>Complete internal state</h3><pre class="debug-pre">${this.esc(JSON.stringify(s, null, 2))}</pre>`;
       const aiSave = document.getElementById('aiEndpointSave');
       if (aiSave) aiSave.addEventListener('click', () => {
